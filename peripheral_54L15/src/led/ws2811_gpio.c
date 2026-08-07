@@ -46,7 +46,7 @@ static nrf_pwm_values_common_t pwm_seq_s[48] = {0};
 static void pwm_handler(nrfx_pwm_event_type_t event_type, void *p_context)
 {
     if (event_type == NRFX_PWM_EVENT_FINISHED) {
-        printk("PWM sequence finished\n");
+        // printk("PWM sequence finished\n");
     }
 }
 
@@ -73,7 +73,7 @@ void ws2811_init()
 
 	int err = nrfx_pwm_init(&pwm_instance, &config, pwm_handler, NULL);
     if (err != 0) {
-        printk("nrfx_pwm_init failed: %d\n", err);
+        printk("[%s %d] nrfx_pwm_init failed: %d\n", __func__, __LINE__, err);
         return;
     }
 }

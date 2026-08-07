@@ -1,10 +1,15 @@
 #include <stdint.h>
 #include <string.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 
 #include "ws2811_gpio.h"
 #include "ledlight.h"
 #include "RS485_deal.h"
+
+static const struct gpio_dt_spec heart1_led = GPIO_DT_SPEC_GET(DT_NODELABEL(heart_led), gpios);
 
 struct LED_RGB_T rgbcolors[] = {
 	{0x00, 0xFF, 0x00}, /* green */
@@ -88,6 +93,26 @@ void LedsSetState(LEDsState_t currentstate)
 	}
 }
 
+static uint8_t uiheartLight = 0;
+static void heartledlight()
+{
+	int err = gpio_pin_set_dt(&heart1_led, uiheartLight);
+	if (err) {
+		printk("[%s %d] Cannot write LED gpio", __func__, __LINE__);
+	}
+
+	uiheartLight = (uiheartLight + 1) % 2;
+}
+
+void LedLightInit()
+{
+	int err = gpio_pin_configure_dt(&heart1_led, GPIO_OUTPUT);
+    if (err) {
+        printk("[%s %d]Cannot configure LED gpio", __func__, __LINE__);
+    }
+
+	ws2811_init();
+}
 
 void Function_of_indicator_lights(void)
 {
@@ -96,6 +121,7 @@ void Function_of_indicator_lights(void)
 		g_LED_pastState = g_LED_currentState;
 	}
 
+	heartledlight();
     LedsSetState(g_LED_pastState);
 }
 
@@ -155,7 +181,7 @@ uint8_t Led_ParseData(uint8_t *uiBuff, uint16_t Size, uint8_t uiFromPort)
 			uiRet = 0;
 		}
 
-        printk("current state %d", g_LED_currentState);
+        printk("[%s %d] current state %d", __func__, __LINE__, g_LED_currentState);
 	}
 	else
 	{

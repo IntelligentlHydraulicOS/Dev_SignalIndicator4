@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ledlight.h"
+#include "zigbee_deal.h"
 
 #ifdef CONFIG_UART_ASYNC_ADAPTER
 UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
@@ -47,18 +48,16 @@ static void rs485_txenable()
 {
 	int err = gpio_pin_set_dt(&rs485_gpio, 1);
 	if (err) {
-		printk("Cannot write LED gpio\r\n");
+		printk("[%s %d] Cannot write LED gpio\r\n", __func__, __LINE__);
 	}
-	// printk("tx enable\n");
 }
 
 static void rs485_rxenable()
 {
 	int err = gpio_pin_set_dt(&rs485_gpio, 0);
 	if (err) {
-		printk("Cannot write LED gpio\r\n");
+		printk("[%s %d] Cannot write LED gpio\r\n", __func__, __LINE__);
 	}
-	// printk("rx enable\n");
 }
 
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
@@ -191,7 +190,7 @@ static void uart_work_handler(struct k_work *item)
 	if (buf) {
 		buf->len = 0;
 	} else {
-		printk("Not able to allocate UART receive buffer\r\n");
+		printk("[%s %d] Not able to allocate UART receive buffer\r\n", __func__, __LINE__);
 		k_work_reschedule(&uart_work, UART_WAIT_FOR_BUF_DELAY);
 		return;
 	}
@@ -238,12 +237,12 @@ static int uart_init(void)
 	err = uart_callback_set(uart, uart_cb, NULL);
 	if (err) {
 		k_free(rx);
-		printk("Cannot initialize UART callback\r\n");
+		printk("[%s %d] Cannot initialize UART callback\r\n", __func__, __LINE__);
 		return err;
 	}
 
 	if (IS_ENABLED(CONFIG_UART_LINE_CTRL)) {
-		printk("Wait for DTR\r\n");
+		printk("[%s %d] Wait for DTR\r\n", __func__, __LINE__);
 		while (true) {
 			uint32_t dtr = 0;
 
@@ -254,14 +253,13 @@ static int uart_init(void)
 			/* Give CPU resources to low priority threads. */
 			k_sleep(K_MSEC(100));
 		}
-		printk("DTR set\r\n");
 		err = uart_line_ctrl_set(uart, UART_LINE_CTRL_DCD, 1);
 		if (err) {
-			printk("Failed to set DCD, ret code %d\r\n", err);
+			printk("[%s %d] Failed to set DCD, ret code %d\r\n", __func__, __LINE__, err);
 		}
 		err = uart_line_ctrl_set(uart, UART_LINE_CTRL_DSR, 1);
 		if (err) {
-			printk("Failed to set DSR, ret code %d\r\n", err);
+			printk("[%s %d] Failed to set DSR, ret code %d\r\n", __func__, __LINE__, err);
 		}
 	}
 
@@ -274,7 +272,7 @@ static int uart_init(void)
 		if ((pos < 0) || (pos >= sizeof(tx->data))) {
 			k_free(rx);
 			k_free(tx);
-			printk("snprintf returned %d\n", pos);
+			printk("[%s %d] snprintf returned %d\n", __func__, __LINE__, pos);
 			return -ENOMEM;
 		}
 
@@ -288,13 +286,13 @@ static int uart_init(void)
 	if (err) {
 		k_free(rx);
 		k_free(tx);
-		printk("Cannot display welcome message (err: %d)\n", err);
+		printk("[%s %d] Cannot display welcome message (err: %d)\n", __func__, __LINE__, err);
 		return err;
 	}
 
 	err = uart_rx_enable(uart, rx->data, sizeof(rx->data), UART_WAIT_FOR_RX);
 	if (err) {
-		printk("Cannot enable uart reception (err: %d)\n", err);
+		printk("[%s %d] Cannot enable uart reception (err: %d)\n", __func__, __LINE__, err);
 		/* Free the rx buffer only because the tx buffer will be handled in the callback */
 		k_free(rx);
 	}
@@ -308,7 +306,7 @@ void RS485_deal_init()
     
 	int err = gpio_pin_configure_dt(&rs485_gpio, GPIO_OUTPUT);
     if (err) {
-        printk("Cannot configure rs485_gpio\n");
+        printk("[%s %d] Cannot configure rs485_gpio\n", __func__, __LINE__);
     }
 
 	rs485_rxenable();
@@ -324,7 +322,7 @@ void sendMsgdata2RS485uart(const uint8_t *const data, uint16_t len)
 		struct uart_data_t *tx = k_malloc(sizeof(*tx));
 
 		if (!tx) {
-			printk("Not able to allocate UART send data buffer\r\n");
+			printk("[%s %d] Not able to allocate UART send data buffer\r\n", __func__, __LINE__);
 			return;
 		}
 

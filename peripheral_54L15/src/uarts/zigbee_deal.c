@@ -57,7 +57,6 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 
 	switch (evt->type) {
 	case UART_TX_DONE:
-		// printk("UART_TX_DONE\n");
 		if ((evt->data.tx.len == 0) ||
 		    (!evt->data.tx.buf)) {
 				
@@ -82,13 +81,12 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 		}
 
 		if (uart_tx(uart, buf->data, buf->len, SYS_FOREVER_MS)) {
-			printk("Failed to send data over UART\n");
+			printk("[%s %d] Failed to send data over UART\n", __func__, __LINE__);
 		}
 
 		break;
 
 	case UART_RX_RDY:
-		// printk("UART_RX_RDY\n");
 		buf = CONTAINER_OF(evt->data.rx.buf, struct uart_data_t, data[0]);
 		buf->len += evt->data.rx.len;
 
@@ -105,14 +103,13 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 		break;
 
 	case UART_RX_DISABLED:
-		printk("UART_RX_DISABLED\n");
 		disable_req = false;
 
 		buf = k_malloc(sizeof(*buf));
 		if (buf) {
 			buf->len = 0;
 		} else {
-			printk("Not able to allocate UART receive buffer\n");
+			printk("[%s %d] Not able to allocate UART receive buffer\n", __func__, __LINE__);
 			k_work_reschedule(&uart_work, UART_WAIT_FOR_BUF_DELAY);
 			return;
 		}
@@ -123,19 +120,17 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 		break;
 
 	case UART_RX_BUF_REQUEST:
-		// printk("UART_RX_BUF_REQUEST\n");
 		buf = k_malloc(sizeof(*buf));
 		if (buf) {
 			buf->len = 0;
 			uart_rx_buf_rsp(uart, buf->data, sizeof(buf->data));
 		} else {
-			printk("Not able to allocate UART receive buffer\n");
+			printk("[%s %d] Not able to allocate UART receive buffer\n", __func__, __LINE__);
 		}
 
 		break;
 
 	case UART_RX_BUF_RELEASED:
-		// printk("UART_RX_BUF_RELEASED\n");
 		buf = CONTAINER_OF(evt->data.rx_buf.buf, struct uart_data_t,
 				   data[0]);
 
@@ -148,7 +143,6 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 		break;
 
 	case UART_TX_ABORTED:
-		printk("UART_TX_ABORTED\n");
 		if (!aborted_buf) {
 			aborted_buf = (uint8_t *)evt->data.tx.buf;
 		}
@@ -175,7 +169,7 @@ static void uart_work_handler(struct k_work *item)
 	if (buf) {
 		buf->len = 0;
 	} else {
-		printk("Not able to allocate UART receive buffer\r\n");
+		printk("[%s %d] Not able to allocate UART receive buffer\r\n", __func__, __LINE__);
 		k_work_reschedule(&uart_work, UART_WAIT_FOR_BUF_DELAY);
 		return;
 	}
@@ -221,7 +215,7 @@ static int uart_init(void)
 	err = uart_callback_set(uart, uart_cb, NULL);
 	if (err) {
 		k_free(rx);
-		printk("Cannot initialize UART callback\r\n");
+		printk("[%s %d] Cannot initialize UART callback\r\n", __func__, __LINE__);
 		return err;
 	}
 
@@ -277,7 +271,7 @@ static int uart_init(void)
 
 	err = uart_rx_enable(uart, rx->data, sizeof(rx->data), UART_WAIT_FOR_RX);
 	if (err) {
-		printk("Cannot enable uart reception (err: %d)\n", err);
+		printk("[%s %d] Cannot enable uart reception (err: %d)\n", __func__, __LINE__, err);
 		/* Free the rx buffer only because the tx buffer will be handled in the callback */
 		k_free(rx);
 	}
@@ -291,7 +285,7 @@ void Zigbee_deal_init()
     
 	int err = gpio_pin_configure_dt(&zigbee_mode, GPIO_OUTPUT);
     if (err) {
-        printk("Cannot configure zigbee_mode gpio");
+        printk("[%s %d] Cannot configure zigbee_mode gpio\n", __func__, __LINE__);
     }
 
 	// err = gpio_pin_set_dt(&zigbee_mode, 1);
@@ -306,7 +300,7 @@ void Zigbee_deal_init()
 
 	err = gpio_pin_configure_dt(&zigbee_m01, GPIO_OUTPUT);
     if (err) {
-        printk("Cannot configure zigbee_mode gpio");
+        printk("[%s %d] Cannot configure zigbee_mode gpio\n", __func__, __LINE__);
     }
 
 	// err = gpio_pin_set_dt(&zigbee_m00, 1);
@@ -316,12 +310,12 @@ void Zigbee_deal_init()
 
 	err = gpio_pin_set_dt(&zigbee_m01, 0);
 	if (err) {
-		printk("Cannot write zigbee_mode gpio");
+		printk("[%s %d] Cannot write zigbee_mode gpio\n", __func__, __LINE__);
 	}
 
 	err = gpio_pin_set_dt(&zigbee_mode, 1);
 	if (err) {
-		printk("Cannot write zigbee_mode gpio");
+		printk("[%s %d] Cannot write zigbee_mode gpio\n", __func__, __LINE__);
 	}
 
     uart_init();
@@ -335,7 +329,7 @@ void sendMsgdata2Zigbeeuart(uint8_t *data, uint16_t len)
 		struct uart_data_t *tx = k_malloc(sizeof(*tx));
 
 		if (!tx) {
-			printk("Not able to allocate UART send data buffer\r\n");
+			printk("[%s %d] Not able to allocate UART send data buffer\r\n", __func__, __LINE__);
 			return;
 		}
 

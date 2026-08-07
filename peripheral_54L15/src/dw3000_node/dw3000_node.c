@@ -48,29 +48,27 @@ void dw3000_node_run()
 
     while (!dwt_checkidlerc()) /* Need to make sure DW IC is in IDLE_RC before proceeding */ 
     {
-        printk("-----fail to dwt_checkidlerc\r\n");
+        printk("[%s %d]-----fail to dwt_checkidlerc\r\n",  __func__, __LINE__);
         k_msleep(1000 * 3);
     };
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
+    
     if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR)
     {
         //test_run_info((unsigned char *)"INIT FAILED     ");
         printk("fail to dwt init\r\n");
-        while (1) {printk("fail to dwt init\r\n"); };
+        while (1) {printk("[%s %d] fail to dwt init\r\n", __func__, __LINE__);  };
     }
 
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     /* This is put here for testing, so that we can see the receiver ON/OFF pattern using an oscilloscope. */
     dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
 
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     if (dwt_configure(&config))
     {
-        printk("CONFIG FAILED     ");
+        printk("[%s %d] CONFIG FAILED", __func__, __LINE__);
         while (1) { };
     }
 
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
+    printk("[%s %d] success to dw3000 init\r\n", __func__, __LINE__);
     /* Configure SNIFF mode. */
     dwt_setsniffmode(1, SNIFF_ON_TIME , SNIFF_OFF_TIME);
 

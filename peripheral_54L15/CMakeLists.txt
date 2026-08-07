@@ -9,6 +9,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(peripheral_54L15)
 
 target_include_directories(app PRIVATE src)
+target_include_directories(app PRIVATE src/ble)
 target_include_directories(app PRIVATE src/led)
 target_include_directories(app PRIVATE src/lib)
 target_include_directories(app PRIVATE src/uarts)
@@ -33,6 +34,11 @@ target_sources(app PRIVATE
   src/dw3000_hw/deca_port.c
   src/dw3000_hw/dw3000_spi_trace.c
   src/dw3000_node/dw3000_node.c
+  src/ble/nus_manage.c
+  src/ble/peripheral_manage.c
+  src/ble/nus_peripheral.c
+  src/ble/nus_central_scan.c
+  src/ble/central_manage.c
 )
 
 # NORDIC SDK APP END

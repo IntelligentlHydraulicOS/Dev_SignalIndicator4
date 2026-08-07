@@ -422,19 +422,10 @@ uint16_t dwt_readgpiovalue(void)
  *
  * returns DWT_SUCCESS for success, or DWT_ERROR for error
  */
-#include <zephyr/sys/printk.h>
+
 int32_t dwt_initialise(int32_t mode)
 {
-    int32_t iRet = 0;
-    if(dw->dwt_driver->dwt_ops->initialize)
-    {
-        printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
-        iRet = dw->dwt_driver->dwt_ops->initialize(dw, mode);
-        printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
-    }
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
-    //return dw->dwt_driver->dwt_ops->initialize(dw, mode);
-    return iRet;
+    return dw->dwt_driver->dwt_ops->initialize(dw, mode);
 }
 
 /*! ------------------------------------------------------------------------------------------------------------------

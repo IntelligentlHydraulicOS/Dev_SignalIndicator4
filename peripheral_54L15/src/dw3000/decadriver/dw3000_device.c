@@ -635,8 +635,6 @@ static uint16_t dwt_read16bitoffsetreg(dwchip_t *dw, uint32_t regFileID, uint16_
     // Read 2 bytes (16-bits) register into buffer
     ull_readfromdevice(dw, regFileID, regOffset, 2U, buffer);
 
-    // printk("buf%x %x\r\n", buffer[0], buffer[1]);
-
     regval = ((uint16_t)buffer[1] << 8U) + (uint16_t)buffer[0];
 
     return regval;
@@ -1018,20 +1016,16 @@ static dwt_local_data_t dwt_local_data;
  *
  * returns DWT_SUCCESS for success, or DWT_ERROR for error
  */
-#include <zephyr/sys/printk.h>
+
 static int32_t ull_initialise(dwchip_t *dw, int32_t mode)
 {
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     uint32_t ldo_tune_lo;
     uint32_t ldo_tune_hi;
     uint32_t pll_coarse_code;
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     dw->priv = &dwt_local_data;
     dwt_local_data_t *pdw3000local = (dwt_local_data_t *)dw->priv;
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     dwt_localstruct_init(pdw3000local);
 
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     pdw3000local->vBatP = 0U;
     pdw3000local->tempP = 0U;
 
@@ -1043,7 +1037,6 @@ static int32_t ull_initialise(dwchip_t *dw, int32_t mode)
     // Saving VDDDIG value from OTP in chip local context to prevent future OTP reading
     // OTP contains trim code value only. Coarse set to 0 by default.
     uint8_t otp_vdddig = (uint8_t)((((ldo_tune_hi & LDO_TUNE_HI_VDDDIG_COARSE_MASK) >> LDO_TUNE_HI_VDDDIG_COARSE_OFFSET) << 4UL) | ((ldo_tune_hi & LDO_TUNE_HI_VDDDIG_TRIM_MASK) >> LDO_TUNE_HI_VDDDIG_TRIM_OFFSET));
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     if(otp_vdddig != 0U)
     {
         pdw3000local->vdddig_otp = otp_vdddig;
@@ -1052,7 +1045,6 @@ static int32_t ull_initialise(dwchip_t *dw, int32_t mode)
     {
         pdw3000local->vdddig_current = dwt_aon_read((uint16_t)AON_VDD_DIG);
     }
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
     if ((ldo_tune_lo != 0UL) && (ldo_tune_hi != 0UL) && (pdw3000local->bias_tune != 0U))
     {
         dwt_prog_ldo_and_bias_tune(dw);
@@ -1061,7 +1053,7 @@ static int32_t ull_initialise(dwchip_t *dw, int32_t mode)
 #ifdef AUTO_PLL_CAL
     ull_set_vdddig_mv(dw, VDDDIG_88mV);
 #endif
-    printk("files name(%s) function(%s), number(%d)", __FILE__, __FUNCTION__, __LINE__);
+
     // Read DGC_CFG from OTP
     if (dwt_otpreadpintoparams(dw, DGC_TUNE_ADDRESS) == DWT_DGC_CFG0)
     {
