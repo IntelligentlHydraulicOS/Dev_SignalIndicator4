@@ -8,29 +8,20 @@ Software architecture description
 
 #### Installation
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1.  采用DW3000+NRF54L15
+2.DW3000资料
+安信可
+ https://docs.ai-thinker.com/uwb_1/index.html
+DW1000资料
+https://github.com/EmbeddedRick/NRF52832_deca1000_SPI
+https://github.com/nRFMesh/sdk-uwb-zephyr
+https://github.com/EmbeddedRick/NRF52832_deca1000_SPI
+https://gitcode.com/Universal-Tool/1deeb/blob/main/examples.rar
 
-#### Instructions
+DW3000资料
+https://github.com/br101/dw3000-decadriver-source
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### Contribution
-
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
-
-
-#### Gitee Feature
-
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+3.54L15环境搭建
+https://mp.weixin.qq.com/s/xcrff8m9cGD_PBIba9AGzA
+https://devzone.nordicsemi.com/
+https://docs.nordicsemi.com/bundle/addon-zigbee-r23-latest/page/index.html
