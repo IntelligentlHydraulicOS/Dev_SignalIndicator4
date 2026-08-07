@@ -20,6 +20,7 @@ target_include_directories(app PRIVATE src/dw3000_node)
 target_sources(app PRIVATE
   src/main.c
   src/led/ws2811_gpio.c
+  src/led/ledlight.c
   src/uarts/RS485_deal.c
   src/uarts/zigbee_deal.c
   src/lib/qmath.c

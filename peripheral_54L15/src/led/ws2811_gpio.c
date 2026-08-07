@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -31,8 +30,7 @@ LOG_MODULE_REGISTER(ws2811_gpio);
 
 static nrfx_pwm_t pwm_instance = NRFX_PWM_INSTANCE(NRF_PWM_INST_GET(PWM_INST_IDX));
 NRFX_INSTANCE_IRQ_HANDLER_DEFINE(pwm, PWM_INST_IDX, &pwm_instance);
-
-/* DMA sequence buffer — must be in RAM (global/static) */
+/*
 nrf_pwm_values_common_t pwm_seq[][TOTAL_BITS] = {
 	[0] = {T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H},
 	[1] = {T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H},
@@ -43,7 +41,8 @@ nrf_pwm_values_common_t pwm_seq[][TOTAL_BITS] = {
 	[6] = {T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H},
 	[7] = {T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H},
 };
-
+*/
+static nrf_pwm_values_common_t pwm_seq_s[48] = {0};
 static void pwm_handler(nrfx_pwm_event_type_t event_type, void *p_context)
 {
     if (event_type == NRFX_PWM_EVENT_FINISHED) {
@@ -79,11 +78,65 @@ void ws2811_init()
     }
 }
 
-static uint8_t uiNum = 0;
-void led_updatergb()
+void WS2811_SetAllLEDs(struct LED_RGB_T *RgbLed, uint8_t uiLight)
 {
+    int iNumber = 0;
+    uint8_t uiTmpr = 0, uiTmpg = 0, uiTmpb = 0;
+    uiTmpr = RgbLed->r;
+    uiTmpg = RgbLed->g;
+    uiTmpb = RgbLed->b;
+
+    if(uiLight)
+    {
+        for(int i = 0; i < 48; i++)
+        {
+            pwm_seq_s[i] = T0H;
+        }
+        // memset(pwm_seq_s, T0H, 48 * sizeof(uint8_t));
+    }
+    else
+    {
+        for(int i = 7; i >= 0; i--)
+        {
+            if(uiTmpr & BIT(i))
+            {
+                pwm_seq_s[iNumber] = T1H;
+                pwm_seq_s[iNumber + 24] = T1H;
+            }
+            else
+            {
+                pwm_seq_s[iNumber] = T0H;
+                pwm_seq_s[iNumber + 24] = T0H;
+            }
+
+            if(uiTmpg & BIT(i))
+            {
+                pwm_seq_s[iNumber + 8] = T1H;
+                pwm_seq_s[iNumber + 32] = T1H;
+            }
+            else
+            {
+                pwm_seq_s[iNumber + 8] = T0H;
+                pwm_seq_s[iNumber + 32] = T0H;
+            }
+
+            if(uiTmpb & BIT(i))
+            {
+                pwm_seq_s[iNumber + 16] = T1H;
+                pwm_seq_s[iNumber + 40] = T1H;
+            }
+            else
+            {
+                pwm_seq_s[iNumber + 16] = T0H;
+                pwm_seq_s[iNumber + 40] = T0H;
+            }
+            iNumber++;
+        }
+    }
+    
+
 	nrf_pwm_sequence_t seq = {
-        .values.p_common = pwm_seq[uiNum],       /* RAM buffer */
+        .values.p_common = pwm_seq_s/*pwm_seq[uiNum]*/,       /* RAM buffer */
         .length          = TOTAL_BITS,
         .repeats         = 0,             /* New value every PWM period */
         .end_delay       = 0
@@ -91,7 +144,6 @@ void led_updatergb()
 
     /* NRFX_PWM_FLAG_LOOP: DMA continuously replays the sequence */
     nrfx_pwm_simple_playback(&pwm_instance, &seq, 1, NRFX_PWM_FLAG_STOP);
-	uiNum = (uiNum + 1) % 8;
 }
 
 

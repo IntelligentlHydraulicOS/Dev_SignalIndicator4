@@ -37,6 +37,7 @@
 #include "RS485_deal.h"
 #include "zigbee_deal.h"
 #include "dw3000_node.h"
+#include "ledlight.h"
 
 #define LOG_MODULE_NAME peripheral_uart
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
@@ -46,17 +47,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN	(sizeof(DEVICE_NAME) - 1)
 
-#define RUN_STATUS_LED DK_LED1
-#define RUN_LED_BLINK_INTERVAL 1000
-
-#define CON_STATUS_LED DK_LED2
-
-#define KEY_PASSKEY_ACCEPT DK_BTN1_MSK
-#define KEY_PASSKEY_REJECT DK_BTN2_MSK
-
-// #define UART_BUF_SIZE CONFIG_BT_NUS_UART_BUFFER_SIZE
-// #define UART_WAIT_FOR_BUF_DELAY K_MSEC(50)
-// #define UART_WAIT_FOR_RX CONFIG_BT_NUS_UART_RX_WAIT_TIME
 
 static K_SEM_DEFINE(ble_init_ok, 0, 1);
 
@@ -64,27 +54,7 @@ static struct bt_conn *current_conn;
 static struct bt_conn *auth_conn;
 static struct k_work adv_work;
 
-#if DT_HAS_CHOSEN(nordic_nus_uart)
-#define NUS_UART_NODE DT_CHOSEN(nordic_nus_uart)
-#elif DT_HAS_CHOSEN(zephyr_shell_uart)
-#define NUS_UART_NODE DT_CHOSEN(zephyr_shell_uart)
-#else
-#error "No NUS UART: add chosen 'nordic,nus-uart' to devicetree (e.g. in a board overlay)."
-#endif
 
-#if 0
-static const struct device *uart = DEVICE_DT_GET(DT_NODELABEL(uart21));
-static struct k_work_delayable uart_work;
-
-struct uart_data_t {
-	void *fifo_reserved;
-	uint8_t data[UART_BUF_SIZE];
-	uint16_t len;
-};
-
-static K_FIFO_DEFINE(fifo_uart_tx_data);
-static K_FIFO_DEFINE(fifo_uart_rx_data);
-#endif
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -125,8 +95,6 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	LOG_INF("Connected %s", addr);
 
 	current_conn = bt_conn_ref(conn);
-
-	dk_set_led_on(CON_STATUS_LED);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -145,7 +113,6 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	if (current_conn) {
 		bt_conn_unref(current_conn);
 		current_conn = NULL;
-		dk_set_led_off(CON_STATUS_LED);
 	}
 }
 
@@ -257,52 +224,13 @@ static struct bt_conn_auth_info_cb conn_auth_info_callbacks;
 static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 			  uint16_t len)
 {
-	int err;
 	char addr[BT_ADDR_LE_STR_LEN] = {0};
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
 
 	printk("Received data from: %s", addr);
 	sendMsgdata2RS485uart(data, len);
-#if 0
-	for (uint16_t pos = 0; pos != len;) {
-		struct uart_data_t *tx = k_malloc(sizeof(*tx));
 
-		if (!tx) {
-			LOG_WRN("Not able to allocate UART send data buffer");
-			return;
-		}
-
-		/* Keep the last byte of TX buffer for potential LF char. */
-		size_t tx_data_size = sizeof(tx->data) - 1;
-
-		if ((len - pos) > tx_data_size) {
-			tx->len = tx_data_size;
-		} else {
-			tx->len = (len - pos);
-		}
-
-		memcpy(tx->data, &data[pos], tx->len);
-
-		pos += tx->len;
-
-		/* Append the LF character when the CR character triggered
-		 * transmission from the peer.
-		 */
-		// if ((pos == len)/* && (data[len - 1] == '\r')*/) 
-		// {
-		// 	tx->data[tx->len] = '\n';
-		// 	tx->len++;
-		// }
-		rs485_txenable();
-
-		err = uart_tx(uart, tx->data, tx->len, SYS_FOREVER_MS);
-		if (err) {
-			k_fifo_put(&fifo_uart_tx_data, tx);
-			printk("err\r\n");
-		}
-	}
-#endif
 }
 
 static struct bt_nus_cb nus_cb = {
@@ -319,68 +247,14 @@ void error(void)
 	}
 }
 
-#ifdef CONFIG_BT_NUS_SECURITY_ENABLED
-static void num_comp_reply(bool accept)
-{
-	if (accept) {
-		bt_conn_auth_passkey_confirm(auth_conn);
-		LOG_INF("Numeric Match, conn %p", (void *)auth_conn);
-	} else {
-		bt_conn_auth_cancel(auth_conn);
-		LOG_INF("Numeric Reject, conn %p", (void *)auth_conn);
-	}
-
-	bt_conn_unref(auth_conn);
-	auth_conn = NULL;
-}
-
-void button_changed(uint32_t button_state, uint32_t has_changed)
-{
-	uint32_t buttons = button_state & has_changed;
-
-	if (auth_conn) {
-		if (buttons & KEY_PASSKEY_ACCEPT) {
-			num_comp_reply(true);
-		}
-
-		if (buttons & KEY_PASSKEY_REJECT) {
-			num_comp_reply(false);
-		}
-	}
-}
-#endif /* CONFIG_BT_NUS_SECURITY_ENABLED */
-
-static void configure_gpio(void)
-{
-	int err;
-
-#ifdef CONFIG_BT_NUS_SECURITY_ENABLED
-	err = dk_buttons_init(button_changed);
-	if (err) {
-		LOG_ERR("Cannot init buttons (err: %d)", err);
-	}
-#endif /* CONFIG_BT_NUS_SECURITY_ENABLED */
-
-	err = dk_leds_init();
-	if (err) {
-		LOG_ERR("Cannot init LEDs (err: %d)", err);
-	}
-}
 
 int main(void)
 {
-	int blink_status = 0;
 	int err = 0;
 	RS485_deal_init();
 	Zigbee_deal_init();
-	configure_gpio();
 	ws2811_init();
 	dw3000_hw_node_init();
-
-	// err = uart_init();
-	// if (err) {
-	// 	error();
-	// }
 
 	if (IS_ENABLED(CONFIG_BT_NUS_SECURITY_ENABLED)) {
 		err = bt_conn_auth_cb_register(&conn_auth_callbacks);
@@ -423,11 +297,8 @@ int main(void)
 	printk("*******************\n");
 	dw3000_node_run();
 	for (;;) {
-		// printk("***********%d HZ****************", CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
-		// k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL * 5));	
-		printk("*******************\n");
+		Function_of_indicator_lights();
 		k_msleep(1000 * 3);
-		led_updatergb();
 		sendzigbee();
 	}
 }

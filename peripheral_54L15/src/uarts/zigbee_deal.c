@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "RS485_deal.h"
+
 #ifdef CONFIG_UART_ASYNC_ADAPTER
 UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
 #else
@@ -325,7 +327,7 @@ void Zigbee_deal_init()
     uart_init();
 }
 
-void sendMsgdata2Zigbeeuart(const  uint8_t *const data, uint16_t len)
+void sendMsgdata2Zigbeeuart(uint8_t *data, uint16_t len)
 {
 	int err;
 
@@ -364,7 +366,7 @@ void sendMsgdata2Zigbeeuart(const  uint8_t *const data, uint16_t len)
 		}
 		else
 		{
-			printk("success to send msg\n");
+			// printk("success to send msg\n");
 		}
 	}
 }
@@ -397,33 +399,15 @@ void zigbee_write_thread(void)
 {
 	/* Don't go any further until BLE is initialized */
 	k_sem_take(&ble_init_ok, K_FOREVER);
-	struct uart_data_t nus_data = {
-		.len = 0,
-	};
 
 	for (;;) {
 		/* Wait indefinitely for data to be sent over bluetooth */
 		struct uart_data_t *buf = k_fifo_get(&fifo_uart_rx_data,
 						     K_FOREVER);
 
-		int plen = MIN(sizeof(nus_data.data) - nus_data.len, buf->len);
-		int loc = 0;
-
-		while (plen > 0) {
-			memcpy(&nus_data.data[nus_data.len], &buf->data[loc], plen);
-			nus_data.len += plen;
-			loc += plen;
-
-			if(1) //(nus_data.len >= sizeof(nus_data.data) || (nus_data.data[nus_data.len - 1] == '\n') || (nus_data.data[nus_data.len - 1] == '\r'))
-			{
-				// if (bt_nus_send(NULL, nus_data.data, nus_data.len)) {
-				// 	printk("Failed to send data over BLE connection\r\n");
-				// }
-				printk("%s\n", nus_data.data);
-				nus_data.len = 0;
-			}
-
-			plen = MIN(sizeof(nus_data.data), buf->len - loc);
+		if(buf->len > 0) 
+		{
+			sendMsgdata2RS485uart(buf->data, buf->len);
 		}
 
 		k_free(buf);

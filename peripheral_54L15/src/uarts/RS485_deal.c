@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "ledlight.h"
 
 #ifdef CONFIG_UART_ASYNC_ADAPTER
 UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
@@ -59,6 +60,7 @@ static void rs485_rxenable()
 	}
 	// printk("rx enable\n");
 }
+
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
 {
 	ARG_UNUSED(dev);
@@ -314,7 +316,7 @@ void RS485_deal_init()
     uart_init();
 }
 
-void sendMsgdata2RS485uart(const  uint8_t *const data, uint16_t len)
+void sendMsgdata2RS485uart(const uint8_t *const data, uint16_t len)
 {
 	int err;
 
@@ -353,7 +355,7 @@ void sendMsgdata2RS485uart(const  uint8_t *const data, uint16_t len)
 		}
 		else
 		{
-			printk("success to send msg\n");
+			// printk("success to send msg\n");
 		}
 	}
 }
@@ -368,19 +370,24 @@ void rs485_write_thread(void)
 {
 	/* Don't go any further until BLE is initialized */
 	k_sem_take(&ble_init_ok, K_FOREVER);
-	struct uart_data_t nus_data = {
-		.len = 0,
-	};
 
 	for (;;) {
 		/* Wait indefinitely for data to be sent over bluetooth */
 		struct uart_data_t *buf = k_fifo_get(&fifo_uart_rx_data,
 						     K_FOREVER);
 
-		int plen = MIN(sizeof(nus_data.data) - nus_data.len, buf->len);
-		int loc = 0;
+		if (buf->len > 0) 
+		{
+			if(buf->data[0] == 0x00 && buf->data[1] == 0x33 && buf->len >=5)
+			{
+				Led_ParseData(buf->data, buf->len, 2);
+			}
+			else if(buf->data[0] == 0xA1 && buf->data[1] == 0xA2)
+			{
+				sendMsgdata2Zigbeeuart(buf->data, buf->len);
+			}
 
-		while (plen > 0) {
+#if 0	
 			memcpy(&nus_data.data[nus_data.len], &buf->data[loc], plen);
 			nus_data.len += plen;
 			loc += plen;
@@ -395,6 +402,7 @@ void rs485_write_thread(void)
 			}
 
 			plen = MIN(sizeof(nus_data.data), buf->len - loc);
+#endif
 		}
 
 		k_free(buf);
