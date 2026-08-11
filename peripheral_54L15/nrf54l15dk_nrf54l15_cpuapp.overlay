@@ -263,6 +263,10 @@ nordic_expansion_spi: &spi22 {
 	status = "disabled";
 };
 
+&lfxo {
+    load-capacitors = "external";
+    load-capacitance-femtofarad = <12000>;
+};
 
 &spi00 {
 	status = "okay";

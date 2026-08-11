@@ -10,11 +10,12 @@
 #include "nus_peripheral.h"
 #include "central_manage.h"
 #include "nus_central_scan.h"
+// #include "RS485_deal.h"
+#include "sensordeal.h"
+#include "config.h"
 
 
 struct bt_central_client CentralClient_list[20] = {0};
-
-
 
 
 /*
@@ -40,46 +41,46 @@ int bt_nus_central_handles_assign(struct bt_gatt_dm *dm,
 	if (bt_uuid_cmp(gatt_service->uuid, BT_UUID_NUS_PERIPHERAL_SERVICE)) {
 		return -ENOTSUP;
 	}
-	printk("Getting handles from NUS service.");
+	printk("[%s %d] Getting handles from NUS service.\n", __func__, __LINE__);
 	memset(&nus_c->handles, 0xFF, sizeof(nus_c->handles));
 
 	/* NUS TX Characteristic */
 	gatt_chrc = bt_gatt_dm_char_by_uuid(dm, BT_UUID_NUS_PERIPHERAL_TX);
 	if (!gatt_chrc) {
-		printk("Missing NUS TX characteristic.");
+		printk("[%s %d] Missing NUS TX characteristic.\n", __func__, __LINE__);
 		return -EINVAL;
 	}
 
 	/* NUS TX */
 	gatt_desc = bt_gatt_dm_desc_by_uuid(dm, gatt_chrc, BT_UUID_NUS_PERIPHERAL_TX);
 	if (!gatt_desc) {
-		printk("Missing NUS TX value descriptor in characteristic.");
+		printk("[%s %d] Missing NUS TX value descriptor in characteristic.\n", __func__, __LINE__);
 		return -EINVAL;
 	}
-	printk("Found handle for NUS TX characteristic.");
+	printk("[%s %d] Found handle for NUS TX characteristic.\n", __func__, __LINE__);
 	nus_c->handles.tx = gatt_desc->handle;
 	/* NUS TX CCC */
 	gatt_desc = bt_gatt_dm_desc_by_uuid(dm, gatt_chrc, BT_UUID_GATT_CCC);
 	if (!gatt_desc) {
-		printk("Missing NUS TX CCC in characteristic.");
+		printk("[%s %d] Missing NUS TX CCC in characteristic.\n", __func__, __LINE__);
 		return -EINVAL;
 	}
-	printk("Found handle for CCC of NUS TX characteristic.");
+	printk("[%s %d] Found handle for CCC of NUS TX characteristic.\n", __func__, __LINE__);
 	nus_c->handles.tx_ccc = gatt_desc->handle;
 
 	/* NUS RX Characteristic */
 	gatt_chrc = bt_gatt_dm_char_by_uuid(dm, BT_UUID_NUS_PERIPHERAL_RX);
 	if (!gatt_chrc) {
-		printk("Missing NUS RX characteristic.");
+		printk("[%s %d] Missing NUS RX characteristic.\n", __func__, __LINE__);
 		return -EINVAL;
 	}
 	/* NUS RX */
 	gatt_desc = bt_gatt_dm_desc_by_uuid(dm, gatt_chrc, BT_UUID_NUS_PERIPHERAL_RX);
 	if (!gatt_desc) {
-		printk("Missing NUS RX value descriptor in characteristic.");
+		printk("[%s %d] Missing NUS RX value descriptor in characteristic.\n", __func__, __LINE__);
 		return -EINVAL;
 	}
-	printk("Found handle for NUS RX characteristic.");
+	printk("[%s %d] Found handle for NUS RX characteristic.\n", __func__, __LINE__);
 	nus_c->handles.rx = gatt_desc->handle;
 
 	/* Assign connection instance. */
@@ -92,12 +93,12 @@ static uint8_t on_received(struct bt_conn *conn,
 			const void *data, uint16_t length)
 {
 	struct bt_central_client *nus;
-	uint8_t addr_str[32] = {0};
+	// uint8_t addr_str[32] = {0};
 	/* Retrieve NUS Client module context. */
 	nus = CONTAINER_OF(params, struct bt_central_client, tx_notif_params);
 
 	if (!data) {
-		printk("[UNSUBSCRIBED]");
+		printk("[%s %d] [UNSUBSCRIBED]\n", __func__, __LINE__);
 		params->value_handle = 0;
 		atomic_clear_bit(&nus->state, NUS_C_TX_NOTIF_ENABLED);
 		if (nus->cb.unsubscribed) {
@@ -108,14 +109,15 @@ static uint8_t on_received(struct bt_conn *conn,
 
 	const bt_addr_le_t *addr = bt_conn_get_dst(conn);
 
-	for(int i = 5; i >= 0; i--)
-	{
-		addr_str[5 - i] = addr->a.val[i];
-	}
+	// for(int i = 5; i >= 0; i--)
+	// {
+	// 	addr_str[5 - i] = addr->a.val[i];
+	// }
 
-	memcpy(addr_str + 6, data, length);
-	// LOG_INF("[NOTIFICATION] data %p length %u", data, length);
-	//sendMsgdata2uart(addr_str, length + 6, 0);
+	// memcpy(addr_str + 6, data, length);
+	// printk("[%s %d] [NOTIFICATION] data %p length %u\n", __func__, __LINE__, data, length);
+	// sendMsgdata2RS485uart(addr_str, length + 6);
+	Sensor_dataParse((uint8_t *)data, length, addr);
 	// bt_nus_peripheral_send(NULL, data, length);
 	if (nus->cb.received) {
 		return nus->cb.received(nus, data, length);
@@ -144,6 +146,8 @@ int bt_nus_central_subscribe_receive(struct bt_central_client *nus_c)
 		printk("[%s %d] Subscribe failed (err %d)\n", __func__, __LINE__, err);
 		atomic_clear_bit(&nus_c->state, NUS_C_TX_NOTIF_ENABLED);
 	} else {
+		const bt_addr_le_t *addr = bt_conn_get_dst(nus_c->conn);
+		Sensor_Addr_Set_Status(addr, 0x4);
 		printk("[%s %d] [SUBSCRIBED]\n", __func__, __LINE__);
 	}
 
@@ -159,7 +163,7 @@ static void discovery_complete(struct bt_gatt_dm *dm,
 			       void *context)
 {
 	struct bt_central_client *nus = context;
-	printk("[]%s %d Service discovery completed\n", __func__, __LINE__);
+	printk("[%s %d] Service discovery completed\n", __func__, __LINE__);
 
 	bt_gatt_dm_data_print(dm);
 
@@ -169,12 +173,15 @@ static void discovery_complete(struct bt_gatt_dm *dm,
 	bt_gatt_dm_data_release(dm);
 
 	bt_centralscan_start();
+
+	Sensor_Addr_Set_Status(bt_conn_get_dst(nus->conn), 0x2);
 }
 
 static void discovery_service_not_found(struct bt_conn *conn,
 					void *context)
 {
 	printk("[%s %d] Service not found\n", __func__, __LINE__);
+	bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 }
 
 static void discovery_error(struct bt_conn *conn,
@@ -193,7 +200,7 @@ struct bt_gatt_dm_cb discovery_cb = {
 int nus1_central_init()
 {
 	printk("[%s %d] central init\n", __func__, __LINE__);
-	for (int i = 0; i < 20; i++) 
+	for (int i = 0; i < uiGetMaxCentralNumber(); i++) 
 	{
 		CentralClient_list[i].conn = NULL;
 	}
@@ -235,7 +242,7 @@ void nus_central_connected(struct bt_conn *conn)
 	int err, i, iNum = 0;
     iCentral_num = iCentral_num + 1;
 
-    for (i = 0; i < 20; i++) {
+    for (i = 0; i < uiGetMaxCentralNumber(); i++) {
         if (CentralClient_list[i].conn == NULL) {
             // 引用 +1（Zephyr 必须这么做）
             CentralClient_list[i].conn = bt_conn_ref(conn);
@@ -244,6 +251,7 @@ void nus_central_connected(struct bt_conn *conn)
         }
     }
 
+	Sensor_Addr_Set_Status(bt_conn_get_dst(conn), 0x1);
     printk("[%s %d] iCentral_num is %d\n", __func__, __LINE__, iCentral_num);
 
 	static struct bt_gatt_exchange_params exchange_params;
@@ -275,7 +283,7 @@ void nus_central_disconnected(struct bt_conn *conn)
 	{
 		iCentral_num = iCentral_num - 1;
 
-		for (int i = 0; i < 20; i++) 
+		for (int i = 0; i < uiGetMaxCentralNumber(); i++) 
 		{
 			if (CentralClient_list[i].conn == conn) {
 				bt_conn_unref(CentralClient_list[i].conn);
@@ -288,7 +296,10 @@ void nus_central_disconnected(struct bt_conn *conn)
     
     printk("[%s %d] disconnect; Central_num is %d\n", __func__, __LINE__, iCentral_num);
 
-	if(iCentral_num < 20)
+	const bt_addr_le_t *addr = bt_conn_get_dst(conn);
+	Sensor_Addr_Del(addr);
+
+	if(iCentral_num < uiGetMaxCentralNumber())
 	{
 		bt_centralscan_start();
 	}

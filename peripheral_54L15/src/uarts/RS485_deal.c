@@ -12,8 +12,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "ledlight.h"
-#include "zigbee_deal.h"
+#include "uartdataparse.h"
 
 #ifdef CONFIG_UART_ASYNC_ADAPTER
 UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
@@ -21,7 +20,7 @@ UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
 #define async_adapter NULL
 #endif
 
-#define UART_BUF_SIZE CONFIG_BT_NUS_UART_BUFFER_SIZE
+#define UART_BUF_SIZE 256//CONFIG_BT_NUS_UART_BUFFER_SIZE
 #define UART_WAIT_FOR_BUF_DELAY K_MSEC(50)
 #define UART_WAIT_FOR_RX CONFIG_BT_NUS_UART_RX_WAIT_TIME
 
@@ -376,36 +375,11 @@ void rs485_write_thread(void)
 
 		if (buf->len > 0) 
 		{
-			if(buf->data[0] == 0x00 && buf->data[1] == 0x33 && buf->len >=5)
-			{
-				Led_ParseData(buf->data, buf->len, 2);
-			}
-			else if(buf->data[0] == 0xA1 && buf->data[1] == 0xA2)
-			{
-				sendMsgdata2Zigbeeuart(buf->data, buf->len);
-			}
-
-#if 0	
-			memcpy(&nus_data.data[nus_data.len], &buf->data[loc], plen);
-			nus_data.len += plen;
-			loc += plen;
-
-			if(1) //(nus_data.len >= sizeof(nus_data.data) || (nus_data.data[nus_data.len - 1] == '\n') || (nus_data.data[nus_data.len - 1] == '\r'))
-			{
-				// if (bt_nus_send(NULL, nus_data.data, nus_data.len)) {
-				// 	printk("Failed to send data over BLE connection\r\n");
-				// }
-				printk("%s\n", nus_data.data);
-				nus_data.len = 0;
-			}
-
-			plen = MIN(sizeof(nus_data.data), buf->len - loc);
-#endif
+			RS485_uart_dataparse(buf->data, buf->len, 2);
 		}
 
 		k_free(buf);
 	}
 }
 
-K_THREAD_DEFINE(rs485_write_thread_id, STACKSIZE, rs485_write_thread, NULL, NULL,
-		NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(rs485_write_thread_id, STACKSIZE, rs485_write_thread, NULL, NULL, NULL, PRIORITY, 0, 0);

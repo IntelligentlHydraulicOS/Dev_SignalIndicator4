@@ -10,6 +10,8 @@ project(peripheral_54L15)
 
 target_include_directories(app PRIVATE src)
 target_include_directories(app PRIVATE src/ble)
+target_include_directories(app PRIVATE src/sensor)
+target_include_directories(app PRIVATE src/config)
 target_include_directories(app PRIVATE src/led)
 target_include_directories(app PRIVATE src/lib)
 target_include_directories(app PRIVATE src/uarts)
@@ -24,6 +26,7 @@ target_sources(app PRIVATE
   src/led/ledlight.c
   src/uarts/RS485_deal.c
   src/uarts/zigbee_deal.c
+  src/uarts/uartdataparse.c
   src/lib/qmath.c
   src/dw3000/deca_rsl.c
   src/dw3000/deca_interface.c
@@ -39,6 +42,8 @@ target_sources(app PRIVATE
   src/ble/nus_peripheral.c
   src/ble/nus_central_scan.c
   src/ble/central_manage.c
+  src/sensor/sensordeal.c
+  src/config/config.c
 )
 
 # NORDIC SDK APP END

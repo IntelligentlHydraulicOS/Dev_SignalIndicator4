@@ -27,6 +27,8 @@
 #include "peripheral_manage.h"
 #include "central_manage.h"
 #include "nus_central_scan.h"
+#include "sensordeal.h"
+#include "config.h"
 
 void error(void)
 {
@@ -40,6 +42,7 @@ void error(void)
 int main(void)
 {
 	int err = 0;
+	nrfConfigInit();
 	LedLightInit();
 	RS485_deal_init();
 	Zigbee_deal_init();
@@ -79,7 +82,7 @@ int main(void)
 	for (;;) {
 		Function_of_indicator_lights();
 		k_msleep(1000);
-		// sendzigbee();
+		Sensor_Info_Respone_Interval();
 	}
 }
 

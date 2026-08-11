@@ -4,9 +4,10 @@
 
 #include "nus_central_scan.h"
 #include "central_manage.h"
+#include "config.h"
+#include "sensordeal.h"
 
 #define CONFIG_BT_SCAN_CONNECTABLE_CACHE_SIZE 8
-#define MAX_CENTRAL_NUM 20
 
 struct bt_scan_control {
 	/* Number of active filters. */
@@ -163,14 +164,14 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 		      struct net_buf_simple *ad)
 {
 	int iRet = 0;
+	uint8_t uiSensorType = 0, uiSensorPosition = 0, uiSensorDevID = 0;
 	
 	
-	if(info->rssi < -95)
+	if(info->rssi < -80)
 	{
 		return;
 	}
 
-#if 1
 	while (ad->len > 1) {
 		struct bt_data data;
 		uint8_t len;
@@ -193,26 +194,27 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 		switch(data.type)
 		{
 			case BT_DATA_NAME_COMPLETE:
-				printk("[%s %d] name %s, data len %d\n", __func__, __LINE__, data.data, data.data_len);
-				if(data.data_len == 8 && 0 == strncmp("SY_ANGLE", data.data, data.data_len))
-				{
-					// LOG_WRN("rssi(%d) addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)", info->rssi, info->addr->a.val[0], info->addr->a.val[1], info->addr->a.val[2], info->addr->a.val[3], info->addr->a.val[4], info->addr->a.val[5]);
-
-					if(info->addr->a.val[0] >= 0x60  && info->addr->a.val[0] <= 0x95  && info->addr->a.val[1] == 0x1  && info->addr->a.val[2] == 0x12  && info->addr->a.val[3] == 0x25)
-					{
-						iRet++;
-					}
-					
-				}
-				break;
-			case BT_DATA_MANUFACTURER_DATA:
-				// LOG_WRN("manu %x %x %x %x %x", data.data[0], data.data[1], data.data[2], data.data[3], data.data[4]);
-
-				if(data.data[0] == 0x3)
+				if((data.data_len == 8 && !strncmp("SY_ANGLE", data.data, data.data_len)) ||	\
+					(data.data_len == 9 && !strncmp("SY_INFRAR", data.data, data.data_len)) ||	\
+					(data.data_len == 6 &&  (!strncmp("SY-GPD", data.data, data.data_len) || !strncmp("SY-GUC", data.data, data.data_len))))
 				{
 					iRet++;
 				}
-				
+				break;
+			case BT_DATA_MANUFACTURER_DATA:
+				if(data.data[2] == uiGetLocalID())
+				{
+					uiSensorType = data.data[0];
+					uiSensorDevID = data.data[1];
+					uiSensorPosition = data.data[2];
+					if((data.data[0] == 0x1 && uiGetSensorConnectType() & 0x1) || \
+						(data.data[0] == 0x2 && uiGetSensorConnectType() & 0x2) ||	\
+						(data.data[0] == 0x3 && uiGetSensorConnectType() & 0x4) ||	\
+						(data.data[0] == 0x4 && uiGetSensorConnectType() & 0x8))
+					{
+						iRet++;
+					}
+				}				
 				break;
 			default:
 				break;
@@ -223,9 +225,10 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 
 	if(iRet == 2)
 	{
+		printk("[%s %d] uiSensorType(%d), uiSensorDevID(%d), uiSensorPosition(%d)\n", __func__, __LINE__, uiSensorType, uiSensorDevID, uiSensorPosition);
+		Sensor_Addr_Add(info->addr, uiSensorType, uiSensorDevID, uiSensorPosition);
 		scan_connect_with_target(info->addr);
 	}
-#endif
 }
 
 static struct bt_le_scan_cb scan_cb = {
@@ -236,7 +239,7 @@ int bt_centralscan_start(void)
 {
 	int iCentralN = getCentralNumber();
 
-	if(iCentralN >= MAX_CENTRAL_NUM)
+	if(iCentralN >= uiGetMaxCentralNumber())
 	{
 		return 1;
 	}
