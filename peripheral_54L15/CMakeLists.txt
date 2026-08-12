@@ -15,10 +15,10 @@ target_include_directories(app PRIVATE src/config)
 target_include_directories(app PRIVATE src/led)
 target_include_directories(app PRIVATE src/lib)
 target_include_directories(app PRIVATE src/uarts)
-target_include_directories(app PRIVATE src/dw3000)
-target_include_directories(app PRIVATE src/dw3000/decadriver)
-target_include_directories(app PRIVATE src/dw3000_hw)
-target_include_directories(app PRIVATE src/dw3000_node)
+target_include_directories(app PRIVATE src/dwt/dw3000)
+target_include_directories(app PRIVATE src/dwt/dw3000/decadriver)
+target_include_directories(app PRIVATE src/dwt/dw3000_hw)
+target_include_directories(app PRIVATE src/dwt/dw3000_node)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
@@ -28,15 +28,15 @@ target_sources(app PRIVATE
   src/uarts/zigbee_deal.c
   src/uarts/uartdataparse.c
   src/lib/qmath.c
-  src/dw3000/deca_rsl.c
-  src/dw3000/deca_interface.c
-  src/dw3000/decadriver/dw3000_device.c
-  src/dw3000_hw/deca_compat.c
-  src/dw3000_hw/dw3000_spi.c
-  src/dw3000_hw/dw3000_hw.c
-  src/dw3000_hw/deca_port.c
-  src/dw3000_hw/dw3000_spi_trace.c
-  src/dw3000_node/dw3000_node.c
+  src/dwt/dw3000/deca_rsl.c
+  src/dwt/dw3000/deca_interface.c
+  src/dwt/dw3000/decadriver/dw3000_device.c
+  src/dwt/dw3000_hw/deca_compat.c
+  src/dwt/dw3000_hw/dw3000_spi.c
+  src/dwt/dw3000_hw/dw3000_hw.c
+  src/dwt/dw3000_hw/deca_port.c
+  src/dwt/dw3000_hw/dw3000_spi_trace.c
+  src/dwt/dw3000_node/dw3000_node.c
   src/ble/nus_manage.c
   src/ble/peripheral_manage.c
   src/ble/nus_peripheral.c
