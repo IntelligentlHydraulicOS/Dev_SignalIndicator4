@@ -181,7 +181,7 @@ static void discovery_service_not_found(struct bt_conn *conn,
 					void *context)
 {
 	printk("[%s %d] Service not found\n", __func__, __LINE__);
-	bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	// bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 }
 
 static void discovery_error(struct bt_conn *conn,
@@ -219,7 +219,7 @@ static void exchange_func(struct bt_conn *conn, uint8_t err, struct bt_gatt_exch
 
 static int iCentral_num = 0;
 
-static void gatt_discover(struct bt_central_client *nus)
+static int gatt_discover(struct bt_central_client *nus)
 {
 	int err;
 
@@ -234,6 +234,7 @@ static void gatt_discover(struct bt_central_client *nus)
 	{
 		printk("[%s %d] gatt_discover\n", __func__, __LINE__);
 	}
+	return err;
 }
 
 
@@ -269,7 +270,13 @@ void nus_central_connected(struct bt_conn *conn)
 	}
 	else
 	{
-		gatt_discover(CentralClient_list + iNum);
+		err = gatt_discover(CentralClient_list + iNum);
+
+		if(err)
+		{
+			central_disconnect_by_addr(bt_conn_get_dst(conn));
+			return;
+		}
 	}
 
 	err = bt_central_scan_stop();
@@ -279,6 +286,9 @@ void nus_central_connected(struct bt_conn *conn)
 }
 void nus_central_disconnected(struct bt_conn *conn)
 {
+	const bt_addr_le_t *addr = bt_conn_get_dst(conn);
+	Sensor_Addr_Del(addr);
+
 	if(iCentral_num)
 	{
 		iCentral_num = iCentral_num - 1;
@@ -286,18 +296,14 @@ void nus_central_disconnected(struct bt_conn *conn)
 		for (int i = 0; i < uiGetMaxCentralNumber(); i++) 
 		{
 			if (CentralClient_list[i].conn == conn) {
-				bt_conn_unref(CentralClient_list[i].conn);
+				//bt_conn_unref(CentralClient_list[i].conn);
 				CentralClient_list[i].conn = NULL;
 				break;
 			}
 		}
 	}
-
-    
+    bt_conn_unref(conn);
     printk("[%s %d] disconnect; Central_num is %d\n", __func__, __LINE__, iCentral_num);
-
-	const bt_addr_le_t *addr = bt_conn_get_dst(conn);
-	Sensor_Addr_Del(addr);
 
 	if(iCentral_num < uiGetMaxCentralNumber())
 	{
@@ -308,6 +314,18 @@ void nus_central_disconnected(struct bt_conn *conn)
 int getCentralNumber()
 {
 	return iCentral_num;
+}
+
+void central_disconnect_by_addr(const bt_addr_le_t *target_addr)
+{
+    struct bt_conn *conn;
+	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, target_addr);
+	if (conn) {
+		bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+		bt_conn_unref(conn);
+	} else {
+		printk("[%s %d] No connection found for the given address\n", __func__, __LINE__);
+	}
 }
 
 /*

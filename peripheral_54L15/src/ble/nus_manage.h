@@ -5,13 +5,8 @@
 extern "C" {
 #endif
 
-void nus_security_init();
-void set_tx_power(uint8_t handle_type, uint16_t handle, int8_t tx_pwr_lvl);
-
-
-
-
-
+extern void nus_security_init();
+extern void CurrentSet_Tx_Power();
 
 
 #ifdef __cplusplus

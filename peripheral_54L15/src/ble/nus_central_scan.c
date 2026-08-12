@@ -138,26 +138,29 @@ static void scan_connect_with_target(const bt_addr_le_t *addr)
 	struct bt_conn *conn = NULL;
 	int err;
 
-	printk("[%s %d] scan connect target\n", __func__, __LINE__);
+	printk("[%s %d] scan connect target, mac(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x) type(%d)\n", __func__, __LINE__, addr->a.val[5], addr->a.val[4], addr->a.val[3], addr->a.val[2], addr->a.val[1], addr->a.val[0], addr->type);
 
-	bt_central_scan_stop();
+	err = bt_central_scan_stop();
 
-	err = bt_conn_le_create(addr,
+	if(err == 0)
+	{
+		err = bt_conn_le_create(addr,
 			       BT_CONN_LE_CREATE_CONN,
 			       &bt_scan.conn_param, &conn);
-
-	printk("[%s %d] Connecting (%d)\n", __func__, __LINE__, err);
-
-	if (err) {
-		/* If an error occurred, send an event to
-		 * the all interested.
-		 */
-		bt_centralscan_start();
-	} else {
-		//notify_connecting(&control->device_info, conn);
-		bt_conn_unref(conn);
+		if (err == 0)
+		{
+			//notify_connecting(&control->device_info, conn);
+			bt_conn_unref(conn);
+		} else {
+			printk("[%s %d] fail to create, error(%d)\n", __func__, __LINE__, err);
+			bt_centralscan_start();
+		}
 	}
-
+	else
+	{
+		printk("[%s %d] fail to stop scan, error(%d)\n", __func__, __LINE__, err);
+		bt_centralscan_start();
+	}
 }
 
 static void scan_recv(const struct bt_le_scan_recv_info *info,

@@ -8,7 +8,7 @@
 #include "nus_peripheral.h"
 #include "nus_manage.h"
 #include "peripheral_manage.h"
-#include "config.h"
+
 
 #define PERIPHERAL_MAX 1
 
@@ -87,7 +87,7 @@ int nus_peripheral_init()
 		return 0;
 	}
 
-    set_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_ADV, 0, uiGetBLE_Txpower());
+    CurrentSet_Tx_Power();
     k_work_init(&adv_work, adv_work_handler);
 	advertising_start();
     return err;

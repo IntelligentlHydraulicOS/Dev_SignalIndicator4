@@ -9,6 +9,7 @@
 #include "nus_manage.h"
 #include "peripheral_manage.h"
 #include "central_manage.h"
+#include "config.h"
 
 
 static struct bt_conn *auth_conn;
@@ -208,7 +209,7 @@ void nus_security_init()
 #endif
 }
 
-void set_tx_power(uint8_t handle_type, uint16_t handle, int8_t tx_pwr_lvl)
+static void set_tx_power(uint8_t handle_type, uint16_t handle, int8_t tx_pwr_lvl)
 {
 	struct bt_hci_cp_vs_write_tx_power_level *cp;
     struct bt_hci_rp_vs_write_tx_power_level *rp;
@@ -237,4 +238,9 @@ void set_tx_power(uint8_t handle_type, uint16_t handle, int8_t tx_pwr_lvl)
     rp = (void *)rsp->data;
     printk("[%s %d] Actual Tx Power: %d\n", __func__, __LINE__, rp->selected_tx_power);
     net_buf_unref(rsp);
+}
+
+void CurrentSet_Tx_Power()
+{
+	set_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_ADV, 0, uiGetBLE_Txpower());
 }

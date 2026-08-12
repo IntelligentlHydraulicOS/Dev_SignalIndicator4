@@ -94,7 +94,7 @@ void nus_central_disconnected(struct bt_conn *conn);
 int getCentralNumber();
 
 
-
+extern void central_disconnect_by_addr(const bt_addr_le_t *target_addr);
 
 
 #ifdef __cplusplus
