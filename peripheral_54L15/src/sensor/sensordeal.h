@@ -10,4 +10,5 @@ extern void Sensor_Info_Respone_Interval();
 extern void Sensor_Info_Respone_All();
 extern void cmd_Get_Sensor_Respose();
 extern void Sensor_Addr_Set_Status(const bt_addr_le_t *addr, uint8_t uiStatus);
+extern void Sensor_DisconnectCentral(uint8_t *uiMacAddr);
 #endif

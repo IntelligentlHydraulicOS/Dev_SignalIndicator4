@@ -6,6 +6,7 @@
 #include "config.h"
 #include "sensordeal.h"
 #include "RS485_deal.h"
+#include "nus_manage.h"
 
 static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromPort)
 {
@@ -16,9 +17,10 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
         case 0x1://set txpower
             if(uiLen == 2)
             {
-                if(puiData[1] < 0x9)
+                if(puiData[1] < 0x9 && puiData[1] != uiGetBLE_Txpower())
                 {
                     uiSetBLE_Txpower(puiData[1]);
+                    CurrentSet_Tx_Power();
                 }
             }
 		break;
@@ -37,7 +39,7 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
         case 7: //disconn MAC 
             if(uiLen == 7)
             {
-                //lsd_ble_disconnect(puiData + 1);
+                Sensor_DisconnectCentral(puiData + 1);
             }
 		break;
         case 8: //set conn sensor type 

@@ -1,16 +1,12 @@
-
-
-
-
-
 #include "sensordeal.h"
 #include "RS485_deal.h"
+#include "central_manage.h"
 
 #pragma pack(push, 1)
 typedef struct tag_sensor_info_t
 {
-    /* data */
     uint8_t ui_addr[6];
+    uint8_t ui_addrType;
     uint8_t uiType;
     uint8_t uiDevID;
     uint8_t uiRSSI;
@@ -136,6 +132,14 @@ void Sensor_Addr_Add(const bt_addr_le_t *addr, uint8_t uiSensorType, uint8_t uiD
 {
     int iNoneAddr = MAX_SENSORNUM;
 
+    uint8_t uiNum = FindSensorInfo(addr);
+
+    if(uiNum != 0xFE)
+    {
+        printk("[%s %d] success to find this addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, addr->a.val[5], addr->a.val[4], addr->a.val[3], addr->a.val[2], addr->a.val[1], addr->a.val[0]);
+        return;
+    }
+
     for(int i = 0; i < MAX_SENSORNUM; i++)
     {
         if(sensor_info[i].ui_addr[0] == 0x0 && sensor_info[i].ui_addr[1] == 0x0 && sensor_info[i].ui_addr[2] == 0x0 &&  \
@@ -156,6 +160,7 @@ void Sensor_Addr_Add(const bt_addr_le_t *addr, uint8_t uiSensorType, uint8_t uiD
 	{
 		sensor_info[iNoneAddr].ui_addr[5 - i] = addr->a.val[i];
 	}
+    sensor_info[iNoneAddr].ui_addrType = addr->type;
     sensor_info[iNoneAddr].uiSensorStatus = 0;
     sensor_info[iNoneAddr].uiPositionID = uiPositionID;
     sensor_info[iNoneAddr].uiDevID = uiDevID;
@@ -340,8 +345,36 @@ void cmd_Get_Sensor_Respose()
     }
 }
 
+void Sensor_DisconnectCentral(uint8_t *uiMacAddr)
+{
+    bt_addr_le_t target_addr = {0};
+    
+    for(int i = 5; i >= 0; i--)
+	{
+	    target_addr.a.val[i] = uiMacAddr[5 - i];
+	}
 
+    uint8_t uiNum = FindSensorInfo(&target_addr);
 
+    if(uiNum == 0xFE)
+    {
+        printk("[%s %d] fail to find this addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, uiMacAddr[0], uiMacAddr[1], uiMacAddr[2], uiMacAddr[3], uiMacAddr[4], uiMacAddr[5]);
+        return;
+    }
+    else
+    {
+        printk("[%s %d] success to find this addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, uiMacAddr[5], uiMacAddr[4], uiMacAddr[3], uiMacAddr[2], uiMacAddr[1], uiMacAddr[0]);
+        target_addr.type = sensor_info[uiNum].ui_addrType;
+        if(sensor_info[uiNum].uiSensorStatus & 0x1)
+        {
+            central_disconnect_by_addr(&target_addr);
+        }
+        else
+        {
+            printk("[%s %d] this mac sensor is disconnect\n", __func__, __LINE__);
+        }
+    }
+}
 
 
 
