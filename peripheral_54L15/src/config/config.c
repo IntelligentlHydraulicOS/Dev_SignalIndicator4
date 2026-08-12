@@ -4,10 +4,6 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 
-
-#include <zephyr/logging/log.h>
-
-LOG_MODULE_REGISTER(config);
 #include "config.h"
 
 
@@ -34,60 +30,64 @@ flash_area_read(fa, 0, buf, len);
 flash_area_write(fa, 0, data, len);
 flash_area_close(fa);
 */
-void config_flash_read()
+static void config_flash_read()
 {
     const struct flash_area *fa;
-    uint8_t uiData[32] = {0};
     int rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
 
     if(rc != 0)
     {
-        LOG_INF("fail to open flash");
+        printk("[%s %d] fail to open flash\n", __func__, __LINE__);
         return;
     }
 
-    LOG_INF("start 0x%lx all size 0x%x", fa->fa_off, fa->fa_size);
+    printk("[%s %d] start 0x%lx all size 0x%x", __func__, __LINE__, fa->fa_off, fa->fa_size);
 
-    flash_area_read(fa, 1, uiData, 32 * sizeof(uint8_t));
+    flash_area_read(fa, 1, &nrf54l15_config, sizeof(nrf54L15_config_t));
 
-    LOG_INF("0x%x 0x%x 0x%x 0x%x 0x%x 0x%x", uiData[0], uiData[1], uiData[2], uiData[3], uiData[4], uiData[5]);
+    if(nrf54l15_config.uiTxpower > 8)
+    {
+        nrf54l15_config.uiTxpower = 8;
+    }
+
+    if(nrf54l15_config.uiConnectType > 0xF)
+    {
+        nrf54l15_config.uiConnectType = 0xF;
+    }
+
+    if(nrf54l15_config.uiCentral_number > 0xF)
+    {
+        nrf54l15_config.uiConnectType = 0xF;
+    }
+
+    printk("[%s %d] config: uiLocalID(%d), uiTxpower(%d), uiConnectType(%d), uiCentral_number(%d)\n", __func__, __LINE__, nrf54l15_config.uiLocalID, nrf54l15_config.uiTxpower, \
+        nrf54l15_config.uiConnectType, nrf54l15_config.uiCentral_number);
 
     flash_area_close(fa);
-
-    // const struct device *flash_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller));
-    // // uint8_t write_buf[] = {0x01, 0x02, 0x03, 0x04};
-    // // uint8_t read_buf[4] = {0};
-
-    // if (!device_is_ready(flash_dev)) {
-    //     LOG_INF("Flash device not ready");
-    //     return;
-    // }
-
-    // size_t page_size = flash_get_write_block_size(flash_dev);
-    // LOG_INF("============================= 0x%x", page_size);
 }
 
-void config_flash_write()
+static void config_flash_write()
 {
+    int iRet = 0;
     const struct flash_area *fa;
-    uint8_t uiData[32] = {0};
-    int rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
+    iRet = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
 
-    if(rc != 0)
+    if(iRet != 0)
     {
-        LOG_INF("fail to open flash");
+        printk("[%s %d] fail to open flash\n", __func__, __LINE__);
         return;
     }
 
-    for(int i = 0; i < 32; i++)
+    iRet = flash_area_write(fa, 1, &nrf54l15_config, sizeof(nrf54L15_config_t));
+
+    if(iRet == 0)
     {
-        uiData[i] = i & 0xff;
+        printk("[%s %d] success to write flash\n", __func__, __LINE__);
     }
-    LOG_INF("start 0x%lx all size 0x%x", fa->fa_off, fa->fa_size);
-
-    flash_area_write(fa, 1, uiData, 32 * sizeof(uint8_t));
-
-    LOG_INF("0x%x 0x%x 0x%x 0x%x 0x%x 0x%x", uiData[0], uiData[1], uiData[2], uiData[3], uiData[4], uiData[5]);
+    else
+    {
+        printk("[%s %d] fail to write flash\n", __func__, __LINE__);
+    }
 
     flash_area_close(fa);
 
@@ -95,10 +95,11 @@ void config_flash_write()
 
 void nrfConfigInit()
 {
-    nrf54l15_config.uiLocalID = 120;
-    nrf54l15_config.uiTxpower = 8;
-    nrf54l15_config.uiCentral_number = 10;
-    nrf54l15_config.uiConnectType = 0xF;
+    config_flash_read();
+    // nrf54l15_config.uiLocalID = 120;
+    // nrf54l15_config.uiTxpower = 8;
+    // nrf54l15_config.uiCentral_number = 10;
+    // nrf54l15_config.uiConnectType = 0xF;
 }
 
 uint8_t uiGetMaxCentralNumber()
@@ -143,5 +144,5 @@ void uiSetSensorConnectType(uint8_t uiConnectType)
 
 void saveConfig()
 {
-
+    config_flash_write();
 }

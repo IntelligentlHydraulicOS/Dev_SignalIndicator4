@@ -1,10 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-
-extern void config_flash_read();
-extern void config_flash_write();
-
 extern uint8_t uiGetMaxCentralNumber();
 extern void uiSetMaxCentralNumber(uint8_t uiCentralNumber);
 
