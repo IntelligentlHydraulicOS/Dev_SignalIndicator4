@@ -8,6 +8,8 @@
 #include "nus_peripheral.h"
 #include "nus_manage.h"
 #include "peripheral_manage.h"
+#include "uartdataparse.h"
+#include "config.h"
 
 
 #define PERIPHERAL_MAX 1
@@ -31,12 +33,7 @@ static const struct bt_data ad[] = {
     BT_DATA(BT_DATA_MANUFACTURER_DATA, my_custom_data, sizeof(my_custom_data)),
     BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
-#if 0
-static const struct bt_data sd[] = {
-    BT_DATA(BT_DATA_MANUFACTURER_DATA, my_custom_data, sizeof(my_custom_data)),
-	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_NUS_VAL_PERIPHERAL),
-};
-#endif
+
 static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 			  uint16_t len)
 {
@@ -46,9 +43,7 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
 
 	printk("[%s %d] Received data from: %s", __func__, __LINE__, addr);
-
-	//sendMsgdata2uart(data, len, 0);
-	// sendMsgdata2uart(data, len, 1);
+    RS485_uart_dataparse(data, len, 1);
 }
 
 static struct bt_nus_peripheral_cb nus_cb = {
@@ -58,6 +53,8 @@ static struct bt_nus_peripheral_cb nus_cb = {
 
 static void adv_work_handler(struct k_work *work)
 {
+    my_custom_data[0] = 0x05;
+    my_custom_data[2] = uiGetLocalID();
 	int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
 
 	if (err) {
