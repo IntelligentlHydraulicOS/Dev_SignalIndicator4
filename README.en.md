@@ -23,6 +23,7 @@ https://github.com/br101/dw3000-decadriver-source
 
 3.54L15环境搭建
 https://mp.weixin.qq.com/s/xcrff8m9cGD_PBIba9AGzA
+推荐NCS版本使用V3.4及以后
 https://devzone.nordicsemi.com/
 https://docs.nordicsemi.com/bundle/addon-zigbee-r23-latest/page/index.html
 
