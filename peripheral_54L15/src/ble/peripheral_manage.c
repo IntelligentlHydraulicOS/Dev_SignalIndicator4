@@ -136,6 +136,19 @@ void peripheral_disconnected(struct bt_conn *conn)
     }
 }
 
+void peripheral_send_message(uint8_t *Data, uint16_t uiLen)
+{
+    if(iPeripheral_num <= 0)
+    {
+        return;
+    }
+
+    if (bt_nus_peripheral_send(NULL, Data, uiLen)) 
+    {
+        printk("[%s %d] Failed to send data over BLE connection\n", __func__, __LINE__);             
+	}
+}
+
 /*
 广播期间： set_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_ADV, 0, 8);
 连接期间： set_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_CONN, conn_handle, 8);

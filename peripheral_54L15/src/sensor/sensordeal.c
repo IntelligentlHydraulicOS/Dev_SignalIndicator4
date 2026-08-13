@@ -1,6 +1,7 @@
 #include "sensordeal.h"
 #include "RS485_deal.h"
 #include "central_manage.h"
+#include "peripheral_manage.h"
 
 #pragma pack(push, 1)
 typedef struct tag_sensor_info_t
@@ -268,10 +269,11 @@ void Sensor_Info_Respone_Interval()
     if(uiNum)
     {
         sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        peripheral_send_message(uiBuffer, uiBuffer[3] + 4);
     }
 }
 
-void Sensor_Info_Respone_All()
+void Sensor_Info_Respone_All(uint8_t uiFromPort)
 {
     uint8_t uiBuffer[128] = {0};
     uint8_t uiNum = 0;
@@ -305,11 +307,18 @@ void Sensor_Info_Respone_All()
 
     if(uiNum)
     {
-        sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        if(uiFromPort == 1)
+        {
+            peripheral_send_message(uiBuffer, uiBuffer[3] + 4);
+        }
+        else if(uiFromPort == 2)
+        {
+            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        }
     }
 }
 
-void cmd_Get_Sensor_Respose()
+void cmd_Get_Sensor_Respose(uint8_t uiFromPort)
 {
     uint8_t uiBuffer[128] = {0};
     uint8_t uiNum = 0;
@@ -341,7 +350,14 @@ void cmd_Get_Sensor_Respose()
 
     if(uiNum)
     {
-        sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        if(uiFromPort == 1)
+        {
+            peripheral_send_message(uiBuffer, uiBuffer[3] + 4);
+        }
+        else if(uiFromPort == 2)
+        {
+            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        }
     }
 }
 

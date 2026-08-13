@@ -7,6 +7,7 @@
 #include "sensordeal.h"
 #include "RS485_deal.h"
 #include "nus_manage.h"
+#include "peripheral_manage.h"
 
 static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromPort)
 {
@@ -99,11 +100,11 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
 		    uiBuffer[3] = 0x2 + strlen(myversion);
             break;
         case 0xFB: //get connect info
-            cmd_Get_Sensor_Respose();
+            cmd_Get_Sensor_Respose(uiFromPort);
             uiRet = 0;
             break;
         case 0xFC: //get sensor info
-            Sensor_Info_Respone_All();
+            Sensor_Info_Respone_All(uiFromPort);
             uiRet = 0;
             break;
         default:
@@ -111,9 +112,16 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
             break;
     }
 
-    if(uiRet && uiFromPort == 2)
+    if(uiRet)
     {
-        sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        if(uiFromPort == 2)
+        {
+            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        }
+        else
+        {
+            peripheral_send_message(uiBuffer, uiBuffer[3] + 4);
+        }
     }
 }
 

@@ -4,16 +4,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <zephyr/bluetooth/conn.h>
 
-
-int nus_peripheral_init();
-void peripheral_advertising_start();
-void peripheral_connected(struct bt_conn *conn);
-void peripheral_disconnected(struct bt_conn *conn);
-
-
-
-
+extern int nus_peripheral_init();
+extern void peripheral_advertising_start();
+extern void peripheral_connected(struct bt_conn *conn);
+extern void peripheral_disconnected(struct bt_conn *conn);
+extern void peripheral_send_message(uint8_t *Data, uint16_t uiLen);
 
 
 #ifdef __cplusplus
