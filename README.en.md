@@ -25,3 +25,6 @@ https://github.com/br101/dw3000-decadriver-source
 https://mp.weixin.qq.com/s/xcrff8m9cGD_PBIba9AGzA
 https://devzone.nordicsemi.com/
 https://docs.nordicsemi.com/bundle/addon-zigbee-r23-latest/page/index.html
+
+固件加载器模式 DFU 流程
+https://nrfconnectdocs.nordicsemi.com/ncs/latest/nrf/samples/dfu/single_slot/README.html
