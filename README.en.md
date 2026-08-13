@@ -27,5 +27,9 @@ https://mp.weixin.qq.com/s/xcrff8m9cGD_PBIba9AGzA
 https://devzone.nordicsemi.com/
 https://docs.nordicsemi.com/bundle/addon-zigbee-r23-latest/page/index.html
 
+nodic AI搭建指导
+https://www.cnblogs.com/iini/p/22366884
+
+
 固件加载器模式 DFU 流程
 https://nrfconnectdocs.nordicsemi.com/ncs/latest/nrf/samples/dfu/single_slot/README.html
