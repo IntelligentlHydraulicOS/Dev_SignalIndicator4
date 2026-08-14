@@ -21,7 +21,7 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
                 if(puiData[1] < 0x9 && puiData[1] != uiGetBLE_Txpower())
                 {
                     uiSetBLE_Txpower(puiData[1]);
-                    CurrentSet_Tx_Power();
+                    // CurrentSet_Tx_Power();
                 }
             }
 		break;
@@ -35,6 +35,12 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
             if(uiLen == 2)
             {
                 uiSetLocalID(puiData[1]);
+            }
+		break;
+        case 5: //BT ota 
+            if(uiLen == 1)
+            {
+                
             }
 		break;
         case 7: //disconn MAC 
@@ -56,7 +62,9 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
             }
 		break;
         case 0xF8: //MCU reset
+        {
             sys_reboot(SYS_REBOOT_WARM); 
+        }
         break;
         default:
 		    break;

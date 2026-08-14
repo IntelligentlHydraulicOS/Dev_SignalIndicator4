@@ -71,32 +71,6 @@ const static struct bt_le_ext_adv_cb adv_callbacks = {
 };
 
 static struct bt_le_ext_adv *adv_set;
-#if 0
-static void adv_work_handler(struct k_work *work)
-{
-    /* 创建广播集 */
-    int err = 0;
-    err = bt_le_ext_adv_create(APP_BT_LE_EXT_ADV_PARAM, &adv_callbacks, &adv_set);
-    if (err) {
-        printk("Failed to create advertising set (err %d)\n", err);
-        return 0;
-    }
-
-    /* 设置广播数据 */
-    err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad), NULL, 0);
-    if (err) {
-        printk("Failed to set advertising data (err %d)\n", err);
-        return 0;
-    }
-    
-    /* 启动广播 */
-    err = bt_le_ext_adv_start(adv_set, BT_LE_EXT_ADV_START_DEFAULT);
-    if (err) {
-        printk("Failed to start extended advertising (err %d)\n", err);
-        return 0;
-    }
-}
-#endif
 
 static void adv_start(void)
 {
@@ -122,11 +96,16 @@ static void adv_start(void)
         return;
     }
 
+    my_custom_data[0] = 0x05;
+    my_custom_data[2] = uiGetLocalID();
+
     err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad), NULL, 0);
     if (err) {
         printk("Failed to set advertising data (err %d)\n", err);
         return;
     }
+
+    CurrentSet_Tx_Power();
 
     err = bt_le_ext_adv_start(adv_set, &ext_adv_start_param);
     if (err) {
@@ -164,8 +143,8 @@ int nus_peripheral_init()
 		return 0;
 	}
 
-    CurrentSet_Tx_Power();
-    //k_work_init(&adv_work, adv_work_handler);
+    // CurrentSet_Tx_Power();
+    // k_work_init(&adv_work, adv_work_handler);
 	// advertising_start();
     adv_start();
     return err;
