@@ -33,3 +33,7 @@ https://www.cnblogs.com/iini/p/22366884
 
 固件加载器模式 DFU 流程
 https://nrfconnectdocs.nordicsemi.com/ncs/latest/nrf/samples/dfu/single_slot/README.html
+
+添加dfu
+在build生成时，最下面修改为sysbuild
+pip3 install imgtool 
