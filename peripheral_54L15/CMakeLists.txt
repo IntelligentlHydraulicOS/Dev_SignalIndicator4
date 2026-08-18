@@ -19,6 +19,8 @@ target_include_directories(app PRIVATE src/dwt/dw3000)
 target_include_directories(app PRIVATE src/dwt/dw3000/decadriver)
 target_include_directories(app PRIVATE src/dwt/dw3000_hw)
 target_include_directories(app PRIVATE src/dwt/dw3000_node)
+target_include_directories(app PRIVATE src/dwt/shared_data)
+target_include_directories(app PRIVATE src/dwt/platform)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
@@ -37,6 +39,7 @@ target_sources(app PRIVATE
   src/dwt/dw3000_hw/deca_port.c
   src/dwt/dw3000_hw/dw3000_spi_trace.c
   src/dwt/dw3000_node/dw3000_node.c
+  src/dwt/shared_data/shared_functions.c
   src/ble/nus_manage.c
   src/ble/peripheral_manage.c
   src/ble/nus_peripheral.c

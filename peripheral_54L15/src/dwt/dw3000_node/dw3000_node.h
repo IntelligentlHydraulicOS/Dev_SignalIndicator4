@@ -4,7 +4,7 @@
 
 void dw3000_hw_node_init();
 void dw3000_node_run();
-
+void dw1000_sendpoll();
 
 
 #endif

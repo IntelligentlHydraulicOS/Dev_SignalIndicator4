@@ -38,7 +38,6 @@ void error(void)
 	}
 }
 
-
 int main(void)
 {
 	int err = 0;
@@ -48,6 +47,7 @@ int main(void)
 	Zigbee_deal_init();
 	dw3000_hw_node_init();
 
+#if 1
 	nus_security_init();
 	err = bt_enable(NULL);
 	if (err) {
@@ -59,6 +59,7 @@ int main(void)
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();
 	}
+	
 
 	err = nus_peripheral_init();
 	if (err) {
@@ -74,15 +75,17 @@ int main(void)
 
 	bt_central_scan_init();
 	bt_centralscan_start();
-
+	// get_local_ble_mac();
+#endif
 	RS485_dealsetuartReceive();
 	Zigbee_dealsetuartReceive();
 	
 	dw3000_node_run();
 	for (;;) {
 		Function_of_indicator_lights();
-		k_msleep(1000);
+		k_msleep(200);
 		Sensor_Info_Respone_Interval();
+		dw1000_sendpoll();
 	}
 }
 

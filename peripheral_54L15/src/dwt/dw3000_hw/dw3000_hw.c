@@ -1,18 +1,16 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
 
 #include "deca_device_api.h"
 #include "dw3000_hw.h"
 #include "dw3000_spi.h"
 
-LOG_MODULE_REGISTER(dw3000_hw);
-
 #define DW_INST DT_INST(0, decawave_dw3000)
 
 static struct gpio_callback gpio_cb;
 static struct k_work dw3000_isr_work;
+static bool dw3000_irs_flag = false;
 
 struct dw3000_config {
 	struct gpio_dt_spec gpio_irq;
@@ -35,14 +33,14 @@ int dw3000_hw_init(void)
 	/* Reset */
 	if (conf.gpio_reset.port) {
 		gpio_pin_configure_dt(&conf.gpio_reset, GPIO_OUTPUT_ACTIVE);
-		LOG_INF("RESET on %s pin %d", conf.gpio_reset.port->name,
+		printk("[%s %d] RESET on %s pin %d\n", __func__, __LINE__, conf.gpio_reset.port->name,
 				conf.gpio_reset.pin);
 	}
 
 	/* Wakeup (optional) */
 	if (conf.gpio_wakeup.port) {
 		gpio_pin_configure_dt(&conf.gpio_wakeup, GPIO_OUTPUT_ACTIVE);
-		LOG_INF("WAKEUP on %s pin %d", conf.gpio_wakeup.port->name,
+		printk("[%s %d] WAKEUP on %s pin %d\n", __func__, __LINE__, conf.gpio_wakeup.port->name,
 				conf.gpio_wakeup.pin);
 	}
 
@@ -83,34 +81,38 @@ int dw3000_hw_init_interrupt(void)
 		gpio_pin_configure_dt(&conf.gpio_irq, GPIO_INPUT);
 		gpio_init_callback(&gpio_cb, dw3000_hw_isr, BIT(conf.gpio_irq.pin));
 		gpio_add_callback(conf.gpio_irq.port, &gpio_cb);
-		gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_EDGE_RISING);
-
-		LOG_INF("IRQ on %s pin %d", conf.gpio_irq.port->name,
+		// gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_EDGE_BOTH/*GPIO_INT_EDGE_RISING*/);
+		dw3000_irs_flag = false;
+		printk("[%s %d] IRQ on %s pin %d\n", __func__, __LINE__, conf.gpio_irq.port->name,
 				conf.gpio_irq.pin);
-		return 0;
 	} else {
-		LOG_ERR("IRQ pin not configured");
+		printk("[%s %d] IRQ pin not configured\n", __func__, __LINE__);
 		return -ENOENT;
 	}
+	return 0;
 }
 
 void dw3000_hw_interrupt_enable(void)
 {
 	if (conf.gpio_irq.port) {
+		printk("[%s %d] set IRQ pin enable\n", __func__, __LINE__);
 		gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_EDGE_RISING);
+		dw3000_irs_flag = true;
 	}
 }
 
 void dw3000_hw_interrupt_disable(void)
 {
 	if (conf.gpio_irq.port) {
+		printk("[%s %d] set IRQ pin disable\n", __func__, __LINE__);
 		gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_DISABLE);
+		dw3000_irs_flag = false;
 	}
 }
 
 bool dw3000_hw_interrupt_is_enabled(void)
 {
-	return true; // TODO
+	return dw3000_irs_flag; // TODO
 }
 
 void dw3000_hw_fini(void)
@@ -133,7 +135,7 @@ void dw3000_hw_fini(void)
 void dw3000_hw_reset()
 {
 	if (!conf.gpio_reset.port) {
-		LOG_ERR("No HW reset configured");
+		printk("[%s %d] No HW reset configured\n", __func__, __LINE__);
 		return;
 	}
 
@@ -148,14 +150,14 @@ void dw3000_hw_wakeup(void)
 {
 	if (conf.gpio_wakeup.port) {
 		/* Use WAKEUP pin if available */
-		LOG_INF("WAKEUP PIN");
+		printk("[%s %d] WAKEUP PIN\n", __func__, __LINE__);
 		gpio_pin_set_dt(&conf.gpio_wakeup, 0);
 		k_msleep(1);
 		gpio_pin_set_dt(&conf.gpio_wakeup, 1);
 
 	} else {
 		/* Use SPI CS pin */
-		LOG_INF("WAKEUP CS");
+		printk("[%s %d] WAKEUP CS\n", __func__, __LINE__);
 		dw3000_spi_wakeup();
 	}
 }

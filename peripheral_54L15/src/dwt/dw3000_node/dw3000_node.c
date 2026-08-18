@@ -8,18 +8,56 @@
 
 #include "dw3000_hw.h"
 #include "dw3000_spi.h"
+#include "shared_defines.h"
+#include "shared_functions.h"
 
-#define SNIFF_ON_TIME  2
-#define SNIFF_OFF_TIME 16
+typedef struct tag_dw1000_state_t
+{
+    uint8_t uicharacter; //1:Tag 2:Anchor
+    uint8_t uiStep;      //0:init 1:tag send To Anchor epool  2:anchor receive epool 3: anchor send To tag resp  4:tag receive resp 5: tag send To anchor final 6: anchor receive final
+    //tag: 0 => 1 => 4 => 5
+    //anchor 0 => 2 => 3 => 6
+    uint8_t uiCurrentID;    //0-254
+    uint8_t uiTimeoutN;    //   5000 * 1.0256us * n
+}dw1000_state_t;
+
+dw1000_state_t Dw1000_State;
+
+#define TX_ANT_DLY 33000
+#define RX_ANT_DLY 0
+
+static void rx_ok_cb(const dwt_cb_data_t *cb_data);
+static void rx_to_cb(const dwt_cb_data_t *cb_data);
+static void rx_err_cb(const dwt_cb_data_t *cb_data);
+static void tx_done_cb(const dwt_cb_data_t *cb_data);
+
+static dwt_callbacks_s dw3000node_callbacks;
 void dw3000_hw_node_init()
 {
     dw3000_hw_init();
     dw3000_hw_init_interrupt();
-    dw3000_hw_interrupt_disable();
+    // dw3000_hw_interrupt_disable();
+
+    dw3000node_callbacks.cbCiaDone = NULL;
+    dw3000node_callbacks.cbDualSPIEv = NULL;
+    dw3000node_callbacks.cbFrmRdy = NULL;
+    dw3000node_callbacks.cbRxErr = rx_err_cb;
+    dw3000node_callbacks.cbRxOk = rx_ok_cb;
+    dw3000node_callbacks.cbRxTo = rx_to_cb;
+    dw3000node_callbacks.cbSPIErr = NULL;
+    dw3000node_callbacks.cbSPIRDErr = NULL;
+    dw3000node_callbacks.cbSPIRdy = NULL;
+    dw3000node_callbacks.cbSysEvent = NULL;
+    dw3000node_callbacks.cbTxDone = tx_done_cb;
+    dw3000node_callbacks.devErr = NULL;
 /*
     dw3000_hw_reset();
     dw3000_spi_speed_slow();
-*/
+*/  
+    Dw1000_State.uicharacter = 2;
+    Dw1000_State.uiCurrentID = 0;
+    Dw1000_State.uiStep = 0;
+    Dw1000_State.uiTimeoutN = 0;
 }
 
 void dw3000_node_run()
@@ -30,11 +68,11 @@ void dw3000_node_run()
         .rxPAC = DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
         .txCode = 9,                /* TX preamble code. Used in TX only. */
         .rxCode = 9,                /* RX preamble code. Used in RX only. */
-        .sfdType = 1,                /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
-        .dataRate = DWT_BR_850K,       /* Data rate. */
+        .sfdType = DWT_SFD_DW_8,    /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
+        .dataRate = DWT_BR_6M8,       /* Data rate. */
         .phrMode = DWT_PHRMODE_STD,  /* PHY header mode. */
         .phrRate = DWT_PHRRATE_STD,  /* PHY header rate. */
-        .sfdTO = (129 + 8 - 8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
+        .sfdTO = 1081,    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
         .stsMode = DWT_STS_MODE_OFF, /* STS disabled */
         .stsLength = DWT_STS_LEN_64,   /* STS length see allowed values in Enum dwt_sts_lengths_e */
         .pdoaMode = DWT_PDOA_M0       /* PDOA mode off */
@@ -52,7 +90,7 @@ void dw3000_node_run()
         k_msleep(1000 * 3);
     };
     
-    if (dwt_initialise(DWT_DW_INIT) == DWT_ERROR)
+    if (dwt_initialise(DWT_DW_IDLE) == DWT_ERROR)
     {
         //test_run_info((unsigned char *)"INIT FAILED     ");
         printk("fail to dwt init\r\n");
@@ -60,7 +98,7 @@ void dw3000_node_run()
     }
 
     /* This is put here for testing, so that we can see the receiver ON/OFF pattern using an oscilloscope. */
-    dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
+    // dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
 
     if (dwt_configure(&config))
     {
@@ -70,6 +108,265 @@ void dw3000_node_run()
 
     printk("[%s %d] success to dw3000 init\r\n", __func__, __LINE__);
     /* Configure SNIFF mode. */
-    dwt_setsniffmode(1, SNIFF_ON_TIME , SNIFF_OFF_TIME);
+    // dwt_setsniffmode(1, SNIFF_ON_TIME , SNIFF_OFF_TIME);
 
+    dwt_setrxantennadelay(RX_ANT_DLY);
+    dwt_settxantennadelay(TX_ANT_DLY);
+    
+    dwt_setcallbacks(&dw3000node_callbacks);
+
+    dwt_setinterrupt(DWT_INT_TXFRS_BIT_MASK | DWT_INT_RXFCG_BIT_MASK | DWT_INT_RXFTO_BIT_MASK | DWT_INT_RXPTO_BIT_MASK | DWT_INT_RXPHE_BIT_MASK
+                         | DWT_INT_RXFCE_BIT_MASK | DWT_INT_RXFSL_BIT_MASK | DWT_INT_RXSTO_BIT_MASK, 0, DWT_ENABLE_INT);
+    // dw3000_hw_interrupt_enable();
+    dwt_setrxtimeout(7000);
+    if(Dw1000_State.uicharacter == 2)
+    {
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+}
+/*
+    START MESSAGE
+*/
+static uint8_t rx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
+static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
+
+static uint8_t tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+static uint8_t rx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
+{
+    int iRet = 0;
+    if(sendlen == 12 && Dw1000_State.uicharacter == 1)
+    {
+        Dw1000_State.uiCurrentID = (Dw1000_State.uiCurrentID + 1) % 255;
+        sendbuf[2] = Dw1000_State.uiCurrentID;
+    }
+
+    if(sendlen == sizeof(tx_poll_msg) || sendlen == sizeof(tx_resp_msg))
+    {
+        // dwt_writetxfctrl(0, 0, 0);
+        dwt_writetxdata(sendlen, sendbuf, 0);
+        dwt_writetxfctrl(sendlen, 0, 1);
+        // printf("current time (0x%llx)\r\n", get_dwt_systime_u64());
+        iRet = dwt_starttx(txmode);
+    }
+    else if(sendlen == sizeof(tx_final_msg))
+    {
+        // dwt_writetxfctrl(0, 0, 0);
+        dwt_writetxdata(sendlen, sendbuf, 0);
+        dwt_writetxfctrl(sendlen, 0, 1);
+        iRet = dwt_starttx(txmode);
+    }
+    else
+    {
+        iRet = dwt_starttx(DWT_START_TX_IMMEDIATE);
+    }
+
+    if(iRet == DWT_SUCCESS)
+    {
+        // printf("[%s %d]ID(%d)\r", __func__, __LINE__, sendbuf[2]);
+    }
+    else
+    {
+        // printf("fail to send msg current time(0x%llx) %d\r", get_dwt_systime_u64(), sendlen);
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+}
+
+void dw1000_sendpoll()
+{
+    if(Dw1000_State.uiTimeoutN < 10)
+    {
+        Dw1000_State.uiTimeoutN++;
+    }
+    
+    if(Dw1000_State.uicharacter == 1 && (Dw1000_State.uiTimeoutN >= 10 || Dw1000_State.uiStep == 0))
+    {
+        Dw1000_State.uiStep = 0;
+        Dw1000_State.uiTimeoutN = 0;
+
+        dw1000_sendMsg1(tx_poll_msg, sizeof(tx_poll_msg), DWT_START_TX_IMMEDIATE);
+    }
+}
+
+#define ALL_MSG_SN_IDX 2
+#define FINAL_MSG_POLL_TX_TS_IDX 12
+#define FINAL_MSG_RESP_RX_TS_IDX 20
+#define FINAL_MSG_FINAL_TX_TS_IDX 28
+
+#define RESP_RX_TO_FINAL_TX_DLY_UUS 3100
+
+static uint64_t auchor_poll_rx_ts;
+static uint64_t auchor_resp_tx_ts;
+static uint64_t auchor_final_rx_ts;
+
+static uint64_t tag_poll_tx_ts;
+static uint64_t tag_resp_rx_ts;
+
+void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
+{
+    uint8_t uiCurrentID = 0;
+    uint32_t final_tx_time;
+    uiCurrentID = rx_buffer[2];
+    
+    if(frame_len == sizeof(rx_poll_msg))//auchor receive poll
+    {
+        
+        tx_resp_msg[2] = uiCurrentID;
+        auchor_poll_rx_ts = get_rx_timestamp_u64();
+        dw1000_sendMsg1(tx_resp_msg, sizeof(tx_resp_msg), DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
+    }
+    else if(frame_len == sizeof(rx_resp_msg))//tag receive resp
+    {
+        tag_poll_tx_ts = get_tx_timestamp_u64();
+        tag_resp_rx_ts = get_rx_timestamp_u64();
+
+        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x2F0000;
+        dwt_setdelayedtrxtime(final_tx_time);
+
+        /* Final TX timestamp is the transmission time we programmed plus the TX antenna delay. */
+        uint64_t Tmpfinal_tx_ts = (((uint64_t)(final_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
+
+        /* Write all timestamps in the final message. See NOTE 11 below. */
+        final_msg_set_ts(&tx_final_msg[FINAL_MSG_POLL_TX_TS_IDX], tag_poll_tx_ts);
+        final_msg_set_ts(&tx_final_msg[FINAL_MSG_RESP_RX_TS_IDX], tag_resp_rx_ts);
+        final_msg_set_ts(&tx_final_msg[FINAL_MSG_FINAL_TX_TS_IDX], Tmpfinal_tx_ts);
+
+        tx_final_msg[ALL_MSG_SN_IDX] = uiCurrentID;
+        dw1000_sendMsg1(tx_final_msg, sizeof(tx_final_msg), DWT_START_TX_DELAYED);
+    }
+    else if(frame_len == sizeof(rx_final_msg))//auchor receive final
+    {
+        uint64_t poll_tx_ts, resp_rx_ts, final_tx_ts;
+        // uint64_t poll_rx_ts_32, resp_tx_ts_32, final_rx_ts_32;
+        double Ra, Rb, Da, Db;
+        int64_t tof_dtu;
+        auchor_resp_tx_ts = get_tx_timestamp_u64();
+        auchor_final_rx_ts = get_rx_timestamp_u64();
+
+        /* Get timestamps embedded in the final message. */
+        final_msg_get_ts_u64(&rx_buffer[FINAL_MSG_POLL_TX_TS_IDX], &poll_tx_ts);
+        final_msg_get_ts_u64(&rx_buffer[FINAL_MSG_RESP_RX_TS_IDX], &resp_rx_ts);
+        final_msg_get_ts_u64(&rx_buffer[FINAL_MSG_FINAL_TX_TS_IDX], &final_tx_ts);
+
+        Ra = (double)(resp_rx_ts - poll_tx_ts);
+        Rb = (double)(auchor_final_rx_ts - auchor_resp_tx_ts);
+        Da = (double)(final_tx_ts - resp_rx_ts);
+        Db = (double)(auchor_resp_tx_ts - auchor_poll_rx_ts);
+        tof_dtu = (int64_t)((Ra * Rb - Da * Db) / (Ra + Rb + Da + Db));
+
+        double tof = tof_dtu * DWT_TIME_UNITS;
+        double distance = tof * SPEED_OF_LIGHT;
+
+        printf("[%s %d] distance %f\r\n", __func__, __LINE__, distance);
+        // printf("pool tx(0x%llx) pool rx(0x%llx) rest tx(0x%llx) rest rx(0x%llx) finnal tx(0x%llx) finnal rx(0x%llx)\r\n", poll_tx_ts, auchor_poll_rx_ts,  auchor_resp_tx_ts, resp_rx_ts, final_tx_ts, auchor_final_rx_ts);
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+    else
+    {
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+}
+/*
+    END MESSAGE
+*/
+#define DW3000_RX_BUF_MAX 128
+static void rx_ok_cb(const dwt_cb_data_t *cb_data)
+{
+    // printk("[%s %d] rx ok cb length(%d)\n", __func__, __LINE__, cb_data->datalength);
+    uint8_t  rx_buffer[DW3000_RX_BUF_MAX] = {0};
+
+    uint16_t rx_len = cb_data->datalength;
+
+    if (rx_len > DW3000_RX_BUF_MAX)
+    {
+        rx_len = DW3000_RX_BUF_MAX;
+    }
+    dwt_readrxdata(rx_buffer, rx_len, 0U);
+
+    dw1000_parsedata(rx_buffer, rx_len);
+
+    if(Dw1000_State.uicharacter == 1)
+    {
+        if(Dw1000_State.uiCurrentID == rx_buffer[2] && Dw1000_State.uiStep == 1 && cb_data->datalength == 30)
+        {
+            Dw1000_State.uiStep = 4;
+        }
+    }
+    else if(Dw1000_State.uicharacter == 2)
+    {
+        if(cb_data->datalength == 12)
+        {
+            Dw1000_State.uiCurrentID = rx_buffer[2];
+            Dw1000_State.uiStep = 2;
+        }
+        else if(Dw1000_State.uiCurrentID == rx_buffer[2] && cb_data->datalength == 38 && Dw1000_State.uiStep == 3)
+        {
+            Dw1000_State.uiStep = 0;
+        }
+    }
+#if 0
+    
+    uint64_t uiRxTime = get_rx_timestamp_u64();
+    uint64_t uiTxTime = get_tx_timestamp_u64();
+    printk("[%s %d] rx ok cb, length(%d) data(0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x)\n", __func__, __LINE__, cb_data->datalength, payload[0], payload[1], payload[2], \
+        payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9], payload[10], payload[11], payload[12]);
+    dwt_rxenable(DWT_START_RX_IMMEDIATE);
+#endif
+}
+
+static void rx_to_cb(const dwt_cb_data_t *cb_data)
+{
+    // printk("[%s %d] rx to cb \n", __func__, __LINE__);
+    if(Dw1000_State.uicharacter == 1)
+    {
+        if(Dw1000_State.uiTimeoutN < 10)
+        {
+            Dw1000_State.uiTimeoutN++;
+            dwt_rxenable(DWT_START_RX_IMMEDIATE);
+        }
+    }
+    else if(Dw1000_State.uicharacter == 2)
+    {
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+}
+
+static void rx_err_cb(const dwt_cb_data_t *cb_data)
+{
+    printk("[%s %d] rx err cb \n", __func__, __LINE__);
+    
+    if(Dw1000_State.uicharacter == 2)
+    {
+        dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
+}
+
+static void tx_done_cb(const dwt_cb_data_t *cb_data)
+{
+    (void)cb_data;
+    // printk("[%s %d] tx done cb \n", __func__, __LINE__);
+    if(Dw1000_State.uicharacter == 1)
+    {
+        if(Dw1000_State.uiStep == 0)
+        {
+            Dw1000_State.uiStep = 1;
+            dwt_rxenable(DWT_START_RX_IMMEDIATE);
+        }
+        else if(Dw1000_State.uiStep == 4)
+        {
+            Dw1000_State.uiStep = 0;
+        }
+    }
+    else if(Dw1000_State.uicharacter == 2)
+    {
+        if(Dw1000_State.uiStep == 2)
+        {
+            Dw1000_State.uiStep = 3;
+        }
+        // dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    }
 }
