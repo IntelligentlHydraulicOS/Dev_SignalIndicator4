@@ -75,7 +75,6 @@ int main(void)
 
 	bt_central_scan_init();
 	bt_centralscan_start();
-	// get_local_ble_mac();
 #endif
 	RS485_dealsetuartReceive();
 	Zigbee_dealsetuartReceive();
@@ -83,7 +82,7 @@ int main(void)
 	dw3000_node_run();
 	for (;;) {
 		Function_of_indicator_lights();
-		k_msleep(200);
+		k_msleep(100);
 		Sensor_Info_Respone_Interval();
 		dw1000_sendpoll();
 	}

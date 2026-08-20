@@ -8,6 +8,7 @@
 #include "RS485_deal.h"
 #include "nus_manage.h"
 #include "peripheral_manage.h"
+#include "dw3000_node.h"
 
 static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromPort)
 {
@@ -96,8 +97,10 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
             uiBuffer[3] = 0x2;
             uiBuffer[5] = uiGetLocalID();
             break;
-        case 0x6: //get connect addr
-            uiRet = 0;
+        case 0x6: //get local mac addr
+            uiBuffer[3] = 0x7;
+            get_LocalMacAddr(uiBuffer + 5);
+            uiRet = 1;
             break;
         case 0x8: //set conn sensor type 
             uiBuffer[3] = 0x2;

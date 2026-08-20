@@ -517,7 +517,7 @@ void final_msg_get_ts_u64(const uint8_t *ts_field, uint64_t *ts)
     *ts = 0;
     for (i = 0; i < sizeof(uint64_t); i++)
     {
-        *ts += ((uint32_t)ts_field[i] << (i * 8));
+        *ts += ((uint64_t)ts_field[i] << (i * 8));
     }
 }
 

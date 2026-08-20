@@ -39,6 +39,7 @@ target_sources(app PRIVATE
   src/dwt/dw3000_hw/deca_port.c
   src/dwt/dw3000_hw/dw3000_spi_trace.c
   src/dwt/dw3000_node/dw3000_node.c
+  src/dwt/platform/config_options.c
   src/dwt/shared_data/shared_functions.c
   src/ble/nus_manage.c
   src/ble/peripheral_manage.c

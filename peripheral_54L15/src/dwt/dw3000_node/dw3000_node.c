@@ -5,11 +5,12 @@
 #include "deca_probe_interface.h"
 #include "deca_device_api.h"
 
-
+#include <stdlib.h>
 #include "dw3000_hw.h"
 #include "dw3000_spi.h"
 #include "shared_defines.h"
 #include "shared_functions.h"
+#include "config_options.h"
 
 typedef struct tag_dw1000_state_t
 {
@@ -19,24 +20,56 @@ typedef struct tag_dw1000_state_t
     //anchor 0 => 2 => 3 => 6
     uint8_t uiCurrentID;    //0-254
     uint8_t uiTimeoutN;    //   5000 * 1.0256us * n
+    uint8_t uiLocalNodeID;
+    uint8_t uiMacAddr[6];
 }dw1000_state_t;
 
 dw1000_state_t Dw1000_State;
 
-#define TX_ANT_DLY 33000
-#define RX_ANT_DLY 0
+#define TX_ANT_DLY 16385
+#define RX_ANT_DLY 16385
+
+extern dwt_txconfig_t txconfig_options;
+extern dwt_txconfig_t txconfig_options_ch9;
 
 static void rx_ok_cb(const dwt_cb_data_t *cb_data);
 static void rx_to_cb(const dwt_cb_data_t *cb_data);
 static void rx_err_cb(const dwt_cb_data_t *cb_data);
 static void tx_done_cb(const dwt_cb_data_t *cb_data);
 
+static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21,    0, 0};
+static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_final_msg[] = {0x41, 0x90, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+#define ALL_MSG_SN_IDX 2
+#define ALL_MSG_TAG_MAC 3
+#define ALL_MSG_AUCHOR_NODEID 11
+#define FINAL_MSG_POLL_TX_TS_IDX 12
+#define FINAL_MSG_RESP_RX_TS_IDX 20
+#define FINAL_MSG_FINAL_TX_TS_IDX 28
+#define LOCALNODEID 5
+
 static dwt_callbacks_s dw3000node_callbacks;
+
+void get_LocalMacAddr(uint8_t *uiLocalMacAddr)
+{
+    memcpy(uiLocalMacAddr, Dw1000_State.uiMacAddr, 6 * sizeof(uint8_t));
+}
+
 void dw3000_hw_node_init()
 {
     dw3000_hw_init();
     dw3000_hw_init_interrupt();
-    // dw3000_hw_interrupt_disable();
+    
+    uint32_t low  = NRF_FICR->DEVICEADDR[0];
+	uint32_t high = NRF_FICR->DEVICEADDR[1];
+
+    Dw1000_State.uiMacAddr[5] = (low >> 0)  & 0xFF;
+    Dw1000_State.uiMacAddr[4] = (low >> 8)  & 0xFF;
+    Dw1000_State.uiMacAddr[3] = (low >> 16) & 0xFF;
+    Dw1000_State.uiMacAddr[2] = (low >> 24) & 0xFF;
+    Dw1000_State.uiMacAddr[1] = (high >> 0) & 0xFF;
+    Dw1000_State.uiMacAddr[0] = (high >> 8) & 0xFF;
+    printk("[%s %d] public MAC addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, Dw1000_State.uiMacAddr[0], Dw1000_State.uiMacAddr[1], Dw1000_State.uiMacAddr[2], Dw1000_State.uiMacAddr[3], Dw1000_State.uiMacAddr[4], Dw1000_State.uiMacAddr[5]);
 
     dw3000node_callbacks.cbCiaDone = NULL;
     dw3000node_callbacks.cbDualSPIEv = NULL;
@@ -64,7 +97,7 @@ void dw3000_node_run()
 {
     dwt_config_t config = {
         .chan = 5,                /* Channel number. */
-        .txPreambLength = DWT_PLEN_128,     /* Preamble length. Used in TX only. */
+        .txPreambLength = DWT_PLEN_1024,     /* Preamble length. Used in TX only. */
         .rxPAC = DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
         .txCode = 9,                /* TX preamble code. Used in TX only. */
         .rxCode = 9,                /* RX preamble code. Used in RX only. */
@@ -72,7 +105,7 @@ void dw3000_node_run()
         .dataRate = DWT_BR_6M8,       /* Data rate. */
         .phrMode = DWT_PHRMODE_STD,  /* PHY header mode. */
         .phrRate = DWT_PHRRATE_STD,  /* PHY header rate. */
-        .sfdTO = 1081,    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
+        .sfdTO = (1024 + 1 + 8 -8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
         .stsMode = DWT_STS_MODE_OFF, /* STS disabled */
         .stsLength = DWT_STS_LEN_64,   /* STS length see allowed values in Enum dwt_sts_lengths_e */
         .pdoaMode = DWT_PDOA_M0       /* PDOA mode off */
@@ -106,6 +139,15 @@ void dw3000_node_run()
         while (1) { };
     }
 
+    if (config.chan == 5)
+    {
+        dwt_configuretxrf(&txconfig_options);
+    }
+    else
+    {
+        dwt_configuretxrf(&txconfig_options_ch9);
+    }
+
     printk("[%s %d] success to dw3000 init\r\n", __func__, __LINE__);
     /* Configure SNIFF mode. */
     // dwt_setsniffmode(1, SNIFF_ON_TIME , SNIFF_OFF_TIME);
@@ -124,17 +166,9 @@ void dw3000_node_run()
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
 }
-/*
+/****************************************************************************
     START MESSAGE
-*/
-static uint8_t rx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
-static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
-
-static uint8_t tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static uint8_t rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-static uint8_t rx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static uint8_t tx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+*****************************************************************************/
 
 void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
 {
@@ -162,6 +196,8 @@ void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
     }
     else
     {
+        dwt_writetxdata(sendlen, sendbuf, 0);
+        dwt_writetxfctrl(sendlen, 0, 1);
         iRet = dwt_starttx(DWT_START_TX_IMMEDIATE);
     }
 
@@ -192,12 +228,8 @@ void dw1000_sendpoll()
     }
 }
 
-#define ALL_MSG_SN_IDX 2
-#define FINAL_MSG_POLL_TX_TS_IDX 12
-#define FINAL_MSG_RESP_RX_TS_IDX 20
-#define FINAL_MSG_FINAL_TX_TS_IDX 28
-
-#define RESP_RX_TO_FINAL_TX_DLY_UUS 3100
+// #define RESP_RX_TO_FINAL_TX_DLY_UUS 3100
+#define RESP_RX_TO_FINAL_TX_DLY_UUS (300 + CPU_PROCESSING_TIME)
 
 static uint64_t auchor_poll_rx_ts;
 static uint64_t auchor_resp_tx_ts;
@@ -212,19 +244,19 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
     uint32_t final_tx_time;
     uiCurrentID = rx_buffer[2];
     
-    if(frame_len == sizeof(rx_poll_msg))//auchor receive poll
+    if(frame_len == sizeof(tx_poll_msg))//auchor receive poll
     {
         
         tx_resp_msg[2] = uiCurrentID;
         auchor_poll_rx_ts = get_rx_timestamp_u64();
         dw1000_sendMsg1(tx_resp_msg, sizeof(tx_resp_msg), DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
     }
-    else if(frame_len == sizeof(rx_resp_msg))//tag receive resp
+    else if(frame_len == sizeof(tx_resp_msg))//tag receive resp
     {
         tag_poll_tx_ts = get_tx_timestamp_u64();
         tag_resp_rx_ts = get_rx_timestamp_u64();
 
-        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x2F0000;
+        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x3A000;
         dwt_setdelayedtrxtime(final_tx_time);
 
         /* Final TX timestamp is the transmission time we programmed plus the TX antenna delay. */
@@ -238,7 +270,7 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
         tx_final_msg[ALL_MSG_SN_IDX] = uiCurrentID;
         dw1000_sendMsg1(tx_final_msg, sizeof(tx_final_msg), DWT_START_TX_DELAYED);
     }
-    else if(frame_len == sizeof(rx_final_msg))//auchor receive final
+    else if(frame_len == sizeof(tx_final_msg))//auchor receive final
     {
         uint64_t poll_tx_ts, resp_rx_ts, final_tx_ts;
         // uint64_t poll_rx_ts_32, resp_tx_ts_32, final_rx_ts_32;
@@ -256,12 +288,12 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
         Rb = (double)(auchor_final_rx_ts - auchor_resp_tx_ts);
         Da = (double)(final_tx_ts - resp_rx_ts);
         Db = (double)(auchor_resp_tx_ts - auchor_poll_rx_ts);
-        tof_dtu = (int64_t)((Ra * Rb - Da * Db) / (Ra + Rb + Da + Db));
+        tof_dtu = (int64_t)(llabs(Ra * Rb - Da * Db) / (Ra + Rb + Da + Db));
 
         double tof = tof_dtu * DWT_TIME_UNITS;
         double distance = tof * SPEED_OF_LIGHT;
 
-        printf("[%s %d] distance %f\r\n", __func__, __LINE__, distance);
+        printf("[%s %d] ID(%d)  distance %f \r\n", __func__, __LINE__, uiCurrentID, distance);
         // printf("pool tx(0x%llx) pool rx(0x%llx) rest tx(0x%llx) rest rx(0x%llx) finnal tx(0x%llx) finnal rx(0x%llx)\r\n", poll_tx_ts, auchor_poll_rx_ts,  auchor_resp_tx_ts, resp_rx_ts, final_tx_ts, auchor_final_rx_ts);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }

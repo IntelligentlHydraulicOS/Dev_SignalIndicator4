@@ -126,9 +126,17 @@ void LedLightInit()
 
 	ws2811_init();
 }
-
+static int iLedTimeout = 0;
 void Function_of_indicator_lights(void)
 {
+	uint32_t iCurrentTimeout = k_ticks_to_ms_near32(k_uptime_ticks());
+	if((iCurrentTimeout - iLedTimeout) < 1000)
+	{
+		return;
+	}
+
+	iLedTimeout = iCurrentTimeout;
+
     if(g_LED_pastState != g_LED_currentState)
 	{
 		g_LED_pastState = g_LED_currentState;

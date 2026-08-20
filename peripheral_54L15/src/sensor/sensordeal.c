@@ -226,8 +226,16 @@ static uint8_t getSensorID(sensor_info_t *psensorinfo)
     return uiRet;
 }
 
+static int iSensorTimeout = 0;
 void Sensor_Info_Respone_Interval()
 {
+    uint32_t iCurrentTimeout = k_ticks_to_ms_near32(k_uptime_ticks());
+	if((iCurrentTimeout - iSensorTimeout) < 1000)
+	{
+		return;
+	}
+
+	iSensorTimeout = iCurrentTimeout;
     uint8_t uiBuffer[128] = {0};
     uint8_t uiNum = 0;
 
