@@ -3,14 +3,15 @@
 
 #include <stdbool.h>
 
-int dw3000_hw_init(void);
-int dw3000_hw_init_interrupt(void);
-void dw3000_hw_fini(void);
-void dw3000_hw_reset(void);
-void dw3000_hw_wakeup(void);
-void dw3000_hw_wakeup_pin_low(void);
-void dw3000_hw_interrupt_enable(void);
-void dw3000_hw_interrupt_disable(void);
-bool dw3000_hw_interrupt_is_enabled(void);
+extern int dw3000_hw_init(void);
+extern int dw3000_hw_init_interrupt(void);
+extern void dw3000_hw_fini(void);
+extern void dw3000_hw_reset(void);
+extern void dw3000_hw_wakeup(void);
+extern void dw3000_hw_wakeup_pin_low(void);
+extern void dw3000_hw_interrupt_enable(void);
+extern void dw3000_hw_interrupt_disable(void);
+extern bool dw3000_hw_interrupt_is_enabled(void);
+extern void dw3000_hw_sync();
 
 #endif

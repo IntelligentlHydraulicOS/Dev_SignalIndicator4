@@ -18,13 +18,15 @@ typedef struct tag_dw1000_state_t
     uint8_t uiStep;      //0:init 1:tag send To Anchor epool  2:anchor receive epool 3: anchor send To tag resp  4:tag receive resp 5: tag send To anchor final 6: anchor receive final
     //tag: 0 => 1 => 4 => 5
     //anchor 0 => 2 => 3 => 6
-    uint8_t uiCurrentID;    //0-254
+    uint8_t uiTagCurrentID[15];    //0-254
+    uint8_t uiAnchorCurrentID;
+    uint8_t uiTagNodeID;
     uint8_t uiTimeoutN;    //   5000 * 1.0256us * n
     uint8_t uiLocalNodeID;
     uint8_t uiMacAddr[6];
 }dw1000_state_t;
 
-dw1000_state_t Dw1000_State;
+dw1000_state_t Dw1000_State = {0};
 
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
@@ -38,21 +40,36 @@ static void rx_err_cb(const dwt_cb_data_t *cb_data);
 static void tx_done_cb(const dwt_cb_data_t *cb_data);
 
 static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21,    0, 0};
-static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0};
 static uint8_t tx_final_msg[] = {0x41, 0x90, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 #define ALL_MSG_SN_IDX 2
 #define ALL_MSG_TAG_MAC 3
-#define ALL_MSG_AUCHOR_NODEID 11
+#define ALL_MSG_AUCHOR_NODEID 9
 #define FINAL_MSG_POLL_TX_TS_IDX 12
 #define FINAL_MSG_RESP_RX_TS_IDX 20
 #define FINAL_MSG_FINAL_TX_TS_IDX 28
-#define LOCALNODEID 5
+#define LOCALNODEID 6
 
 static dwt_callbacks_s dw3000node_callbacks;
 
 void get_LocalMacAddr(uint8_t *uiLocalMacAddr)
 {
     memcpy(uiLocalMacAddr, Dw1000_State.uiMacAddr, 6 * sizeof(uint8_t));
+}
+
+static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr)
+{
+    uint8_t uiRet = 1;
+
+    for(int i = 0; i < 6; i++)
+    {
+        if(uiLocalMacAddr[i] != Dw1000_State.uiMacAddr[i])
+        {
+            uiRet = 0;
+            break;
+        }
+    }
+    return uiRet;
 }
 
 void dw3000_hw_node_init()
@@ -69,7 +86,7 @@ void dw3000_hw_node_init()
     Dw1000_State.uiMacAddr[2] = (low >> 24) & 0xFF;
     Dw1000_State.uiMacAddr[1] = (high >> 0) & 0xFF;
     Dw1000_State.uiMacAddr[0] = (high >> 8) & 0xFF;
-    printk("[%s %d] public MAC addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, Dw1000_State.uiMacAddr[0], Dw1000_State.uiMacAddr[1], Dw1000_State.uiMacAddr[2], Dw1000_State.uiMacAddr[3], Dw1000_State.uiMacAddr[4], Dw1000_State.uiMacAddr[5]);
+    printk("[%s %d] addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, Dw1000_State.uiMacAddr[0], Dw1000_State.uiMacAddr[1], Dw1000_State.uiMacAddr[2], Dw1000_State.uiMacAddr[3], Dw1000_State.uiMacAddr[4], Dw1000_State.uiMacAddr[5]);
 
     dw3000node_callbacks.cbCiaDone = NULL;
     dw3000node_callbacks.cbDualSPIEv = NULL;
@@ -83,14 +100,24 @@ void dw3000_hw_node_init()
     dw3000node_callbacks.cbSysEvent = NULL;
     dw3000node_callbacks.cbTxDone = tx_done_cb;
     dw3000node_callbacks.devErr = NULL;
-/*
-    dw3000_hw_reset();
-    dw3000_spi_speed_slow();
-*/  
-    Dw1000_State.uicharacter = 2;
-    Dw1000_State.uiCurrentID = 0;
+
+    Dw1000_State.uicharacter = 1;
+    Dw1000_State.uiTagNodeID = 1;
     Dw1000_State.uiStep = 0;
     Dw1000_State.uiTimeoutN = 0;
+    Dw1000_State.uiLocalNodeID = LOCALNODEID;
+
+    if(Dw1000_State.uicharacter == 1)
+    {
+        get_LocalMacAddr(tx_poll_msg + ALL_MSG_TAG_MAC);
+        get_LocalMacAddr(tx_final_msg + ALL_MSG_TAG_MAC);
+        tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+        tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+    }
+    else if(Dw1000_State.uicharacter == 2)
+    {
+        tx_resp_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiLocalNodeID;
+    }
 }
 
 void dw3000_node_run()
@@ -102,7 +129,7 @@ void dw3000_node_run()
         .txCode = 9,                /* TX preamble code. Used in TX only. */
         .rxCode = 9,                /* RX preamble code. Used in RX only. */
         .sfdType = DWT_SFD_DW_8,    /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
-        .dataRate = DWT_BR_6M8,       /* Data rate. */
+        .dataRate = DWT_BR_850K,       /* Data rate. */
         .phrMode = DWT_PHRMODE_STD,  /* PHY header mode. */
         .phrRate = DWT_PHRRATE_STD,  /* PHY header rate. */
         .sfdTO = (1024 + 1 + 8 -8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
@@ -173,10 +200,10 @@ void dw3000_node_run()
 void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
 {
     int iRet = 0;
-    if(sendlen == 12 && Dw1000_State.uicharacter == 1)
+    if(sendlen == sizeof(tx_poll_msg) && Dw1000_State.uicharacter == 1)
     {
-        Dw1000_State.uiCurrentID = (Dw1000_State.uiCurrentID + 1) % 255;
-        sendbuf[2] = Dw1000_State.uiCurrentID;
+        Dw1000_State.uiTagCurrentID[Dw1000_State.uiTagNodeID] = (Dw1000_State.uiTagCurrentID[Dw1000_State.uiTagNodeID] + 1) % 255;
+        sendbuf[2] = Dw1000_State.uiTagCurrentID[Dw1000_State.uiTagNodeID];
     }
 
     if(sendlen == sizeof(tx_poll_msg) || sendlen == sizeof(tx_resp_msg))
@@ -207,23 +234,37 @@ void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
     }
     else
     {
-        // printf("fail to send msg current time(0x%llx) %d\r", get_dwt_systime_u64(), sendlen);
+        printf("fail to send msg current time %d\r", sendlen);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
 }
 
+#define MAXTAGTIMEOUTN 4
 void dw1000_sendpoll()
 {
-    if(Dw1000_State.uiTimeoutN < 10)
+    if(Dw1000_State.uiTimeoutN < MAXTAGTIMEOUTN)
     {
         Dw1000_State.uiTimeoutN++;
     }
     
-    if(Dw1000_State.uicharacter == 1 && (Dw1000_State.uiTimeoutN >= 10 || Dw1000_State.uiStep == 0))
+    if(Dw1000_State.uicharacter == 1 && (Dw1000_State.uiTimeoutN >= MAXTAGTIMEOUTN || Dw1000_State.uiStep == 0))
     {
+        // dw3000_hw_sync();
         Dw1000_State.uiStep = 0;
         Dw1000_State.uiTimeoutN = 0;
 
+        if(Dw1000_State.uiTagNodeID >= 5 && Dw1000_State.uiTagNodeID < 8)
+        {
+            Dw1000_State.uiTagNodeID = Dw1000_State.uiTagNodeID % 8 + 1;
+        }
+        else
+        {
+            Dw1000_State.uiTagNodeID = 5;
+        }
+        
+        tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+        tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+        // printk("***********************************************\n");
         dw1000_sendMsg1(tx_poll_msg, sizeof(tx_poll_msg), DWT_START_TX_IMMEDIATE);
     }
 }
@@ -244,33 +285,34 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
     uint32_t final_tx_time;
     uiCurrentID = rx_buffer[2];
     
-    if(frame_len == sizeof(tx_poll_msg))//auchor receive poll
+    if(frame_len == sizeof(tx_poll_msg) && rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiLocalNodeID)//auchor receive poll
     {
         
         tx_resp_msg[2] = uiCurrentID;
+        memcpy(tx_resp_msg + ALL_MSG_TAG_MAC, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
         auchor_poll_rx_ts = get_rx_timestamp_u64();
         dw1000_sendMsg1(tx_resp_msg, sizeof(tx_resp_msg), DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
     }
-    else if(frame_len == sizeof(tx_resp_msg))//tag receive resp
+    else if(frame_len == sizeof(tx_resp_msg) &&  rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiTagNodeID && uiDiffLocalMacAddr(rx_buffer + ALL_MSG_TAG_MAC) == 1)//tag receive resp
     {
         tag_poll_tx_ts = get_tx_timestamp_u64();
         tag_resp_rx_ts = get_rx_timestamp_u64();
 
-        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x3A000;
+        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x3FFFF;
         dwt_setdelayedtrxtime(final_tx_time);
 
         /* Final TX timestamp is the transmission time we programmed plus the TX antenna delay. */
         uint64_t Tmpfinal_tx_ts = (((uint64_t)(final_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
 
         /* Write all timestamps in the final message. See NOTE 11 below. */
-        final_msg_set_ts(&tx_final_msg[FINAL_MSG_POLL_TX_TS_IDX], tag_poll_tx_ts);
-        final_msg_set_ts(&tx_final_msg[FINAL_MSG_RESP_RX_TS_IDX], tag_resp_rx_ts);
-        final_msg_set_ts(&tx_final_msg[FINAL_MSG_FINAL_TX_TS_IDX], Tmpfinal_tx_ts);
+        final_msg_set_ts_u64(&tx_final_msg[FINAL_MSG_POLL_TX_TS_IDX], tag_poll_tx_ts);
+        final_msg_set_ts_u64(&tx_final_msg[FINAL_MSG_RESP_RX_TS_IDX], tag_resp_rx_ts);
+        final_msg_set_ts_u64(&tx_final_msg[FINAL_MSG_FINAL_TX_TS_IDX], Tmpfinal_tx_ts);
 
         tx_final_msg[ALL_MSG_SN_IDX] = uiCurrentID;
         dw1000_sendMsg1(tx_final_msg, sizeof(tx_final_msg), DWT_START_TX_DELAYED);
     }
-    else if(frame_len == sizeof(tx_final_msg))//auchor receive final
+    else if(frame_len == sizeof(tx_final_msg) && rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiLocalNodeID)//auchor receive final
     {
         uint64_t poll_tx_ts, resp_rx_ts, final_tx_ts;
         // uint64_t poll_rx_ts_32, resp_tx_ts_32, final_rx_ts_32;
@@ -320,34 +362,27 @@ static void rx_ok_cb(const dwt_cb_data_t *cb_data)
     dwt_readrxdata(rx_buffer, rx_len, 0U);
 
     dw1000_parsedata(rx_buffer, rx_len);
+    // printk("[%s %d] %x %x %x %x %x %x %x %x %x %x %x %x\n", __func__, __LINE__, rx_buffer[0], rx_buffer[1], rx_buffer[2], rx_buffer[3], rx_buffer[4], rx_buffer[5], rx_buffer[6], rx_buffer[7], rx_buffer[8], rx_buffer[9], rx_buffer[10], rx_buffer[11]);
 
     if(Dw1000_State.uicharacter == 1)
     {
-        if(Dw1000_State.uiCurrentID == rx_buffer[2] && Dw1000_State.uiStep == 1 && cb_data->datalength == 30)
+        if(Dw1000_State.uiTagCurrentID[Dw1000_State.uiTagNodeID] == rx_buffer[2] && Dw1000_State.uiStep == 1 && cb_data->datalength == sizeof(tx_resp_msg))
         {
             Dw1000_State.uiStep = 4;
         }
     }
     else if(Dw1000_State.uicharacter == 2)
     {
-        if(cb_data->datalength == 12)
+        if(cb_data->datalength == sizeof(tx_poll_msg))
         {
-            Dw1000_State.uiCurrentID = rx_buffer[2];
+            Dw1000_State.uiAnchorCurrentID = rx_buffer[2];
             Dw1000_State.uiStep = 2;
         }
-        else if(Dw1000_State.uiCurrentID == rx_buffer[2] && cb_data->datalength == 38 && Dw1000_State.uiStep == 3)
+        else if(Dw1000_State.uiAnchorCurrentID == rx_buffer[2] && cb_data->datalength == 38 && Dw1000_State.uiStep == 3)
         {
             Dw1000_State.uiStep = 0;
         }
     }
-#if 0
-    
-    uint64_t uiRxTime = get_rx_timestamp_u64();
-    uint64_t uiTxTime = get_tx_timestamp_u64();
-    printk("[%s %d] rx ok cb, length(%d) data(0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x)\n", __func__, __LINE__, cb_data->datalength, payload[0], payload[1], payload[2], \
-        payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9], payload[10], payload[11], payload[12]);
-    dwt_rxenable(DWT_START_RX_IMMEDIATE);
-#endif
 }
 
 static void rx_to_cb(const dwt_cb_data_t *cb_data)
@@ -355,10 +390,14 @@ static void rx_to_cb(const dwt_cb_data_t *cb_data)
     // printk("[%s %d] rx to cb \n", __func__, __LINE__);
     if(Dw1000_State.uicharacter == 1)
     {
-        if(Dw1000_State.uiTimeoutN < 10)
+        if(Dw1000_State.uiTimeoutN < MAXTAGTIMEOUTN)
         {
             Dw1000_State.uiTimeoutN++;
             dwt_rxenable(DWT_START_RX_IMMEDIATE);
+        }
+        else
+        {
+            printk("[%s %d] current is idle\n", __func__, __LINE__);
         }
     }
     else if(Dw1000_State.uicharacter == 2)
@@ -388,9 +427,14 @@ static void tx_done_cb(const dwt_cb_data_t *cb_data)
             Dw1000_State.uiStep = 1;
             dwt_rxenable(DWT_START_RX_IMMEDIATE);
         }
-        else if(Dw1000_State.uiStep == 4)
+        else 
         {
-            Dw1000_State.uiStep = 0;
+            if(Dw1000_State.uiStep == 4)
+            {
+                Dw1000_State.uiStep = 0;
+                Dw1000_State.uiTimeoutN = MAXTAGTIMEOUTN;
+            }
+            printk("[%s %d] current is idle\n", __func__, __LINE__);
         }
     }
     else if(Dw1000_State.uicharacter == 2)

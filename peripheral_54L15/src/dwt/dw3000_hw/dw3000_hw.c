@@ -14,6 +14,7 @@ static bool dw3000_irs_flag = false;
 
 struct dw3000_config {
 	struct gpio_dt_spec gpio_irq;
+	struct gpio_dt_spec gpio_sync;
 	struct gpio_dt_spec gpio_reset;
 	struct gpio_dt_spec gpio_wakeup;
 	struct gpio_dt_spec gpio_spi_pol;
@@ -24,6 +25,7 @@ static const struct dw3000_config conf = {
 	.gpio_irq = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_irq), gpios),
 	.gpio_reset = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_rst), gpios),
 	.gpio_wakeup = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_wakeup), gpios),
+	.gpio_sync = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_sync), gpios),
 /*	.gpio_spi_pol = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_cs), gpios),
 	.gpio_spi_pha = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_cs), gpios),*/
 };
@@ -44,19 +46,12 @@ int dw3000_hw_init(void)
 				conf.gpio_wakeup.pin);
 	}
 
-/* SPI Polarity (optional) 
-	if (conf.gpio_spi_pol.port) {
-		gpio_pin_configure_dt(&conf.gpio_spi_pol, GPIO_OUTPUT_INACTIVE);
-		LOG_INF("SPI_POL on %s pin %d", conf.gpio_spi_pol.port->name,
-				conf.gpio_spi_pol.pin);
+	if (conf.gpio_sync.port) {
+		gpio_pin_configure_dt(&conf.gpio_sync, GPIO_OUTPUT_ACTIVE);
+		printk("[%s %d] sync on %s pin %d\n", __func__, __LINE__, conf.gpio_wakeup.port->name,
+				conf.gpio_wakeup.pin);
 	}
 
-	if (conf.gpio_spi_pha.port) {
-		gpio_pin_configure_dt(&conf.gpio_spi_pha, GPIO_OUTPUT_INACTIVE);
-		LOG_INF("SPI_PHA on %s pin %d", conf.gpio_spi_pha.port->name,
-				conf.gpio_spi_pha.pin);
-	}
-*/
 	return dw3000_spi_init();
 }
 
@@ -129,7 +124,23 @@ void dw3000_hw_fini(void)
 		gpio_pin_configure_dt(&conf.gpio_wakeup, GPIO_DISCONNECTED);
 	}
 
+	if (conf.gpio_sync.port) {
+		gpio_pin_configure_dt(&conf.gpio_sync, GPIO_DISCONNECTED);
+	}
+
 	dw3000_spi_fini();
+}
+
+void dw3000_hw_sync()
+{
+	if (!conf.gpio_sync.port) {
+		printk("[%s %d] No HW sync configured\n", __func__, __LINE__);
+		return;
+	}
+
+	gpio_pin_configure_dt(&conf.gpio_sync, GPIO_OUTPUT_INACTIVE);
+	k_busy_wait(1); // 1usÂö³å£¬¹¤³ÌÎÈÍ×
+	gpio_pin_configure_dt(&conf.gpio_sync, GPIO_OUTPUT_ACTIVE);
 }
 
 void dw3000_hw_reset()

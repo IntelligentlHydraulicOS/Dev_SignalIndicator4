@@ -33,7 +33,7 @@ flash_area_close(fa);
 static void config_flash_read()
 {
     const struct flash_area *fa;
-    int rc = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
+    int rc = flash_area_open(PARTITION_ID(storage_partition), &fa);
 
     if(rc != 0)
     {
@@ -70,7 +70,7 @@ static void config_flash_write()
 {
     int iRet = 0;
     const struct flash_area *fa;
-    iRet = flash_area_open(FIXED_PARTITION_ID(storage_partition), &fa);
+    iRet = flash_area_open(PARTITION_ID(storage_partition), &fa);//FIXED_PARTITION_ID or PARTITION_ID
 
     if(iRet != 0)
     {

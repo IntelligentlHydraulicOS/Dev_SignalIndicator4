@@ -40,7 +40,6 @@ void error(void)
 
 int main(void)
 {
-	int err = 0;
 	nrfConfigInit();
 	LedLightInit();
 	RS485_deal_init();
@@ -48,6 +47,7 @@ int main(void)
 	dw3000_hw_node_init();
 
 #if 1
+	int err = 0;
 	nus_security_init();
 	err = bt_enable(NULL);
 	if (err) {

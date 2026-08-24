@@ -542,6 +542,16 @@ void final_msg_set_ts(uint8_t *ts_field, uint64_t ts)
     }
 }
 
+void final_msg_set_ts_u64(uint8_t *ts_field, uint64_t ts)
+{
+    uint8_t i;
+    for (i = 0; i < 5; i++)
+    {
+        ts_field[i] = (uint8_t)ts;
+        ts >>= 8;
+    }
+}
+
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn resp_msg_set_ts()
  *
