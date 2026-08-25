@@ -108,7 +108,7 @@ void dw1000_sendpoll();
 #define RESP_TX_TO_FINAL_RX_DLY_UUS 500
 #define FINAL_RX_TIMEOUT_UUS 3300
 
-
+#define ALL_MSG_TAG_MAC         3
 #define ALL_MSG_SN_IDX 2
 #define FINAL_MSG_POLL_TX_TS_IDX 12
 #define FINAL_MSG_RESP_RX_TS_IDX 20
@@ -132,7 +132,8 @@ void dw1000_sendpoll();
 static uint8 rx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
 static uint8 tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
 
-static uint8 tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0};
+// static uint8 tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8 rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 static uint8 rx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -191,18 +192,18 @@ void node_process_init()
 
     dwt_config_t config = {
 		.chan = 5,               /* Channel number. */
-		.prf = DWT_PRF_64M,     /* Pulse repetition frequency. */
+		.prf = DWT_PRF_16M,     /* Pulse repetition frequency. */
 		.txPreambLength = DWT_PLEN_1024,   /* Preamble length. */
 		.rxPAC = DWT_PAC8,       /* Preamble acquisition chunk size. Used in RX only. */
 		.txCode = 4,               /* TX preamble code. Used in TX only. */
 		.rxCode = 4,               /* RX preamble code. Used in RX only. */
 		.nsSFD = 1,               /* Use non-standard SFD (Boolean) */
-		.dataRate = DWT_BR_850K,     /* Data rate. */
+		.dataRate = DWT_BR_6M8,     /* Data rate. */
 		.phrMode = DWT_PHRMODE_STD, /* PHY header mode. */
 		.sfdTO = 1081//DWT_SFDTOC_DEF//(1025 + 64 - 8) /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
 	};
 
-    Dw1000_State.uicharacter = 1;
+    Dw1000_State.uicharacter = 2;
     Dw1000_State.uiCurrentID = 0;
     Dw1000_State.uiStep = 0;
     Dw1000_State.uiTimeoutN = 0;
@@ -278,7 +279,7 @@ void dw1000_sendMsg1(uint8 *sendbuf, uint16 sendlen, uint8 txmode)
 
     if(iRet == DWT_SUCCESS)
     {
-        printf("ID(%d)\r", sendbuf[2]);
+        // printf("ID(%d)\r", sendbuf[2]);
     }
     else
     {
@@ -313,6 +314,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
     {
         
         tx_resp_msg[2] = uiCurrentID;
+        memcpy(tx_resp_msg + ALL_MSG_TAG_MAC, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
         auchor_poll_rx_ts = get_rx_timestamp_u64();
 #if 0
         resp_tx_time = ((auchor_poll_rx_ts + (POLL_RX_TO_RESP_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + /*0x2661AC*/ 0x2F0000;
@@ -328,7 +330,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
 #else
     dw1000_sendMsg1(tx_resp_msg, sizeof(tx_resp_msg), DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
 #endif   
-        
+
     }
     else if(frame_len == sizeof(rx_resp_msg))//tag receive resp
     {

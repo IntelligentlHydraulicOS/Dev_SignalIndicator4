@@ -1,0 +1,6 @@
+{
+    "nrf-connect.applications": [
+        "${workspaceFolder}\\peripheral_54L15",
+        "${workspaceFolder}\\peripheral_52832"
+    ]
+}
