@@ -279,7 +279,7 @@ void dw1000_sendMsg1(uint8 *sendbuf, uint16 sendlen, uint8 txmode)
 
     if(iRet == DWT_SUCCESS)
     {
-        // printf("ID(%d)\r", sendbuf[2]);
+        // printf("ID(%d) len(%d)\r", sendbuf[2], sendlen);
     }
     else
     {
@@ -314,6 +314,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
     {
         
         tx_resp_msg[2] = uiCurrentID;
+        tx_resp_msg[9] = rx_buffer[9];
         memcpy(tx_resp_msg + ALL_MSG_TAG_MAC, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
         auchor_poll_rx_ts = get_rx_timestamp_u64();
 #if 0
@@ -386,7 +387,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
 
-    // printf("************ID (%d)*****************buflen(%d)*****\r\n", uiCurrentID, frame_len);
+    // printf("************ID (%d)******nodeID(%d)****buflen(%d)*****\r\n", uiCurrentID, rx_buffer[9], frame_len);
 }
 
 void dw1000_isr_ok_receive()

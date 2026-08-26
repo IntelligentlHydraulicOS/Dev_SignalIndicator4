@@ -126,8 +126,8 @@ void dw3000_node_run()
         .chan = 5,                /* Channel number. */
         .txPreambLength = DWT_PLEN_1024,     /* Preamble length. Used in TX only. */
         .rxPAC = DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
-        .txCode = 9,                /* TX preamble code. Used in TX only. */
-        .rxCode = 9,                /* RX preamble code. Used in RX only. */
+        .txCode = 4,                /* TX preamble code. Used in TX only. */
+        .rxCode = 4,                /* RX preamble code. Used in RX only. */
         .sfdType = DWT_SFD_DW_8,    /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
         .dataRate = DWT_BR_850K,       /* Data rate. */
         .phrMode = DWT_PHRMODE_STD,  /* PHY header mode. */
@@ -261,6 +261,7 @@ void dw1000_sendpoll()
         {
             Dw1000_State.uiTagNodeID = 5;
         }
+        Dw1000_State.uiTagNodeID = 6;
         
         tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
         tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
@@ -341,6 +342,11 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
     }
     else
     {
+        // uint8_t *mac_ptr = Dw1000_State.uiMacAddr;
+        // uint8_t *rec_mac_ptr = &rx_buffer[3];
+        // printf("ID(%d -> %d) MAC(%x %x %x %x %x %x)->(%x %x %x %x %x %x)\r\n", Dw1000_State.uiTagNodeID, rx_buffer[ALL_MSG_AUCHOR_NODEID], 
+        //     mac_ptr[0], mac_ptr[1], mac_ptr[2], mac_ptr[3], mac_ptr[4], mac_ptr[5], 
+        //     rec_mac_ptr[0], rec_mac_ptr[1], rec_mac_ptr[2], rec_mac_ptr[3], rec_mac_ptr[4], rec_mac_ptr[5]);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
 }
