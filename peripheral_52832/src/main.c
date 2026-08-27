@@ -30,9 +30,11 @@
 #include <string.h>
 
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/i2c.h>
 
 #include "node.h"
 #include "port.h"
+#include "bq27441_driver.h"
 
 #define LOG_MODULE_NAME peripheral_uart
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
@@ -68,6 +70,10 @@ static struct k_work adv_work;
 #endif
 static const struct device *uart = DEVICE_DT_GET(NUS_UART_NODE);
 static struct k_work_delayable uart_work;
+
+#define BQ27441_NODE DT_ALIAS(bq27441)
+static const struct i2c_dt_spec bq27441_i2c = I2C_DT_SPEC_GET(BQ27441_NODE);
+
 
 struct uart_data_t {
 	void *fifo_reserved;
@@ -509,6 +515,43 @@ static struct bt_nus_cb nus_cb = {
 	.received = bt_receive_cb,
 };
 
+static void bms_status_echo()
+{
+	static int64_t last_time = 0;
+	if(k_uptime_get() - last_time < 5000)
+	{
+		return;
+	}
+	last_time = k_uptime_get();
+	struct bq27441_result bat;
+	int ret = bq27441_read(&bq27441_i2c, &bat);
+	if (ret == 0) {
+		printf("SOC:%d%%,Volt:%dmV,Cur:%dmA,Temp:%.1fC,Cap:%dmAh\r\n",
+			bat.soc,
+			bat.voltage_mv,
+			bat.current_ma,
+			bat.temp_01c / 10.0f,
+			bat.full_cap_mah);
+	} else {
+		printf("Read battery fail\r\n");
+	}
+}
+
+void i2c_bus_scan(void)
+{
+	int ret;
+	uint8_t addr;
+	printf("Start scan i2c bus 0\r\n");
+	for(addr = 1; addr < 127; addr++)
+	{
+		ret = i2c_write(bq27441_i2c.bus, NULL, 0, addr);
+		if(ret == 0)
+		{
+			printf("Found device at 0x%02X\r\n",addr);
+		}
+	}
+	printf("Scan finished\r\n");
+}
 
 int main(void)
 {
@@ -558,9 +601,21 @@ int main(void)
 	advertising_start();
 
 	node_process_init();
+
+	if (!device_is_ready(bq27441_i2c.bus)) {
+		printf("BQ27441 device not ready!\r\n");
+		return -1;
+	}
+	printf("BQ27441 device ready OK!\r\n");
+	k_msleep(200);
+	// i2c_bus_scan();
+	// k_msleep(2000);
+
 	for (;;) {
 		k_msleep(200 * 1);
 		dw1000_sendpoll();
+		bms_status_echo();
+		// iic_gpio_test();
 
 		// printf("********************111************\r");
 	}

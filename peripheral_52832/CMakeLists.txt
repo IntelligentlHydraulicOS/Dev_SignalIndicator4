@@ -13,6 +13,7 @@ project(peripheral_52832)
 target_include_directories(app PRIVATE src/lib/platform)
 target_include_directories(app PRIVATE src/lib/decadriver)
 target_include_directories(app PRIVATE src/lib/dw_twr)
+target_include_directories(app PRIVATE src/lib/bms_driver)
 
 # NORDIC SDK APP START
 target_sources(app PRIVATE
@@ -23,6 +24,7 @@ target_sources(app PRIVATE
   src/lib/decadriver/deca_device.c
   src/lib/decadriver/deca_params_init.c
   src/lib/dw_twr/node.c
+  src/lib/bms_driver/bq27441_driver.c
 )
 
 # NORDIC SDK APP END
