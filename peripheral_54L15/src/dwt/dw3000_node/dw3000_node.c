@@ -1,6 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
-
+#include <math.h>
 
 #include "deca_probe_interface.h"
 #include "deca_device_api.h"
@@ -11,6 +11,17 @@
 #include "shared_defines.h"
 #include "shared_functions.h"
 #include "config_options.h"
+#include "RS485_deal.h"
+
+#define ALL_MSG_SN_IDX 2
+#define ALL_MSG_TAG_MAC 3
+#define ALL_MSG_AUCHOR_NODEID 9
+#define FINAL_MSG_POLL_TX_TS_IDX 12
+#define FINAL_MSG_RESP_RX_TS_IDX 20
+#define FINAL_MSG_FINAL_TX_TS_IDX 28
+#define LOCALNODEID 6
+
+#define MAXTAGNUMBER 10
 
 typedef struct tag_dw1000_state_t
 {
@@ -27,6 +38,7 @@ typedef struct tag_dw1000_state_t
 }dw1000_state_t;
 
 dw1000_state_t Dw1000_State = {0};
+static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr, uint8_t *uiCurrentMacAddr);
 
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
@@ -42,13 +54,7 @@ static void tx_done_cb(const dwt_cb_data_t *cb_data);
 static uint8_t tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21,    0, 0};
 static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0};
 static uint8_t tx_final_msg[] = {0x41, 0x90, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-#define ALL_MSG_SN_IDX 2
-#define ALL_MSG_TAG_MAC 3
-#define ALL_MSG_AUCHOR_NODEID 9
-#define FINAL_MSG_POLL_TX_TS_IDX 12
-#define FINAL_MSG_RESP_RX_TS_IDX 20
-#define FINAL_MSG_FINAL_TX_TS_IDX 28
-#define LOCALNODEID 6
+
 
 static dwt_callbacks_s dw3000node_callbacks;
 
@@ -57,13 +63,13 @@ void get_LocalMacAddr(uint8_t *uiLocalMacAddr)
     memcpy(uiLocalMacAddr, Dw1000_State.uiMacAddr, 6 * sizeof(uint8_t));
 }
 
-static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr)
+static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr, uint8_t *uiCurrentMacAddr)
 {
     uint8_t uiRet = 1;
 
     for(int i = 0; i < 6; i++)
     {
-        if(uiLocalMacAddr[i] != Dw1000_State.uiMacAddr[i])
+        if(uiLocalMacAddr[i] != uiCurrentMacAddr[i]/*Dw1000_State.uiMacAddr[i]*/)
         {
             uiRet = 0;
             break;
@@ -129,7 +135,7 @@ void dw3000_node_run()
         .txCode = 4,                /* TX preamble code. Used in TX only. */
         .rxCode = 4,                /* RX preamble code. Used in RX only. */
         .sfdType = DWT_SFD_DW_8,    /* 0 to use standard 8 symbol SFD, 1 to use non-standard 8 symbol, 2 for non-standard 16 symbol SFD and 3 for 4z 8 symbol SDF type */
-        .dataRate = DWT_BR_850K,       /* Data rate. */
+        .dataRate = DWT_BR_6M8,       /* Data rate. */
         .phrMode = DWT_PHRMODE_STD,  /* PHY header mode. */
         .phrRate = DWT_PHRRATE_STD,  /* PHY header rate. */
         .sfdTO = (1024 + 1 + 8 -8),    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
@@ -253,15 +259,14 @@ void dw1000_sendpoll()
         Dw1000_State.uiStep = 0;
         Dw1000_State.uiTimeoutN = 0;
 
-        if(Dw1000_State.uiTagNodeID >= 5 && Dw1000_State.uiTagNodeID < 8)
+        if(Dw1000_State.uiTagNodeID >= 3 && Dw1000_State.uiTagNodeID < 10)
         {
             Dw1000_State.uiTagNodeID = Dw1000_State.uiTagNodeID % 8 + 1;
         }
         else
         {
-            Dw1000_State.uiTagNodeID = 5;
+            Dw1000_State.uiTagNodeID = 3;
         }
-        Dw1000_State.uiTagNodeID = 6;
         
         tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
         tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
@@ -274,12 +279,8 @@ void dw1000_sendpoll()
 #define RESP_RX_TO_FINAL_TX_DLY_UUS (300 + CPU_PROCESSING_TIME)
 
 static uint64_t auchor_poll_rx_ts;
-static uint64_t auchor_resp_tx_ts;
-static uint64_t auchor_final_rx_ts;
 
-static uint64_t tag_poll_tx_ts;
-static uint64_t tag_resp_rx_ts;
-
+static uint8_t uiCurrentMacAddr1[6] = {0};
 void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
 {
     uint8_t uiCurrentID = 0;
@@ -288,18 +289,18 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
     
     if(frame_len == sizeof(tx_poll_msg) && rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiLocalNodeID)//auchor receive poll
     {
-        
         tx_resp_msg[2] = uiCurrentID;
         memcpy(tx_resp_msg + ALL_MSG_TAG_MAC, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
+        // memcpy(uiCurrentMacAddr1, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
         auchor_poll_rx_ts = get_rx_timestamp_u64();
         dw1000_sendMsg1(tx_resp_msg, sizeof(tx_resp_msg), DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
     }
-    else if(frame_len == sizeof(tx_resp_msg) &&  rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiTagNodeID && uiDiffLocalMacAddr(rx_buffer + ALL_MSG_TAG_MAC) == 1)//tag receive resp
+    else if(frame_len == sizeof(tx_resp_msg) &&  rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiTagNodeID && uiDiffLocalMacAddr(rx_buffer + ALL_MSG_TAG_MAC, Dw1000_State.uiMacAddr) == 1)//tag receive resp
     {
-        tag_poll_tx_ts = get_tx_timestamp_u64();
-        tag_resp_rx_ts = get_rx_timestamp_u64();
+        uint64_t tag_poll_tx_ts = get_tx_timestamp_u64();
+        uint64_t tag_resp_rx_ts = get_rx_timestamp_u64();
 
-        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x3FFFF;
+        final_tx_time = ((tag_resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + 0x4FFFF;
         dwt_setdelayedtrxtime(final_tx_time);
 
         /* Final TX timestamp is the transmission time we programmed plus the TX antenna delay. */
@@ -313,14 +314,15 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
         tx_final_msg[ALL_MSG_SN_IDX] = uiCurrentID;
         dw1000_sendMsg1(tx_final_msg, sizeof(tx_final_msg), DWT_START_TX_DELAYED);
     }
-    else if(frame_len == sizeof(tx_final_msg) && rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiLocalNodeID)//auchor receive final
+    else if(frame_len == sizeof(tx_final_msg) && rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiLocalNodeID/* && uiDiffLocalMacAddr(rx_buffer + ALL_MSG_TAG_MAC, uiCurrentMacAddr1) == 1*/)//auchor receive final
     {
         uint64_t poll_tx_ts, resp_rx_ts, final_tx_ts;
-        // uint64_t poll_rx_ts_32, resp_tx_ts_32, final_rx_ts_32;
+
         double Ra, Rb, Da, Db;
         int64_t tof_dtu;
-        auchor_resp_tx_ts = get_tx_timestamp_u64();
-        auchor_final_rx_ts = get_rx_timestamp_u64();
+
+        uint64_t auchor_resp_tx_ts = get_tx_timestamp_u64();
+        uint64_t auchor_final_rx_ts = get_rx_timestamp_u64();
 
         /* Get timestamps embedded in the final message. */
         final_msg_get_ts_u64(&rx_buffer[FINAL_MSG_POLL_TX_TS_IDX], &poll_tx_ts);
@@ -335,18 +337,26 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
 
         double tof = tof_dtu * DWT_TIME_UNITS;
         double distance = tof * SPEED_OF_LIGHT;
+        uint16_t uiDistance = (uint16_t)round(distance * 100);
+        uint8_t uiRS485Buffer[16] = {0};
+        uiRS485Buffer[0] = 0x11;
+        uiRS485Buffer[1] = 0x33;
+        memcpy(uiRS485Buffer + 2, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
 
-        printf("[%s %d] ID(%d)  distance %f \r\n", __func__, __LINE__, uiCurrentID, distance);
+        uiRS485Buffer[8] = Dw1000_State.uiLocalNodeID;
+        uiRS485Buffer[9] = uiDistance & 0xff;
+        uiRS485Buffer[10] = (uiDistance & 0xff00) >> 8;
+        uiRS485Buffer[11] = 0xFA;
+
+        sendMsgdata2RS485uart(uiRS485Buffer, 12);
+
+        printf("[%s %d] ID(%d)  mac(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x) distance %f \r\n", __func__, __LINE__, uiCurrentID, rx_buffer[ALL_MSG_TAG_MAC], rx_buffer[ALL_MSG_TAG_MAC + 1], \
+                rx_buffer[ALL_MSG_TAG_MAC + 2], rx_buffer[ALL_MSG_TAG_MAC + 3], rx_buffer[ALL_MSG_TAG_MAC + 4], rx_buffer[ALL_MSG_TAG_MAC + 5], distance);
         // printf("pool tx(0x%llx) pool rx(0x%llx) rest tx(0x%llx) rest rx(0x%llx) finnal tx(0x%llx) finnal rx(0x%llx)\r\n", poll_tx_ts, auchor_poll_rx_ts,  auchor_resp_tx_ts, resp_rx_ts, final_tx_ts, auchor_final_rx_ts);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
     else
     {
-        // uint8_t *mac_ptr = Dw1000_State.uiMacAddr;
-        // uint8_t *rec_mac_ptr = &rx_buffer[3];
-        // printf("ID(%d -> %d) MAC(%x %x %x %x %x %x)->(%x %x %x %x %x %x)\r\n", Dw1000_State.uiTagNodeID, rx_buffer[ALL_MSG_AUCHOR_NODEID], 
-        //     mac_ptr[0], mac_ptr[1], mac_ptr[2], mac_ptr[3], mac_ptr[4], mac_ptr[5], 
-        //     rec_mac_ptr[0], rec_mac_ptr[1], rec_mac_ptr[2], rec_mac_ptr[3], rec_mac_ptr[4], rec_mac_ptr[5]);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
 }
@@ -379,15 +389,7 @@ static void rx_ok_cb(const dwt_cb_data_t *cb_data)
     }
     else if(Dw1000_State.uicharacter == 2)
     {
-        if(cb_data->datalength == sizeof(tx_poll_msg))
-        {
-            Dw1000_State.uiAnchorCurrentID = rx_buffer[2];
-            Dw1000_State.uiStep = 2;
-        }
-        else if(Dw1000_State.uiAnchorCurrentID == rx_buffer[2] && cb_data->datalength == 38 && Dw1000_State.uiStep == 3)
-        {
-            Dw1000_State.uiStep = 0;
-        }
+        
     }
 }
 
@@ -425,7 +427,7 @@ static void rx_err_cb(const dwt_cb_data_t *cb_data)
 static void tx_done_cb(const dwt_cb_data_t *cb_data)
 {
     (void)cb_data;
-    // printk("[%s %d] tx done cb \n", __func__, __LINE__);
+    // printk("[%s %d] tx done cb\n", __func__, __LINE__);
     if(Dw1000_State.uicharacter == 1)
     {
         if(Dw1000_State.uiStep == 0)
@@ -445,10 +447,6 @@ static void tx_done_cb(const dwt_cb_data_t *cb_data)
     }
     else if(Dw1000_State.uicharacter == 2)
     {
-        if(Dw1000_State.uiStep == 2)
-        {
-            Dw1000_State.uiStep = 3;
-        }
-        // dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
     }
 }
