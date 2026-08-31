@@ -35,6 +35,8 @@
 #include "node.h"
 #include "port.h"
 #include "bq27441_driver.h"
+#include "lsm6ds3_spi_driver.h"
+#include "lsm6ds3_angle.h"
 
 #define LOG_MODULE_NAME peripheral_uart
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
@@ -74,6 +76,19 @@ static struct k_work_delayable uart_work;
 #define BQ27441_NODE DT_ALIAS(bq27441)
 static const struct i2c_dt_spec bq27441_i2c = I2C_DT_SPEC_GET(BQ27441_NODE);
 
+static const struct spi_dt_spec imu_cfg = {
+	.bus = DEVICE_DT_GET(DT_NODELABEL(spi2)),
+	.config = {
+		.cs = {{{0}}},
+		.operation = SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8),
+		.frequency = 10000000U,
+		.slave = 0,
+		.word_delay = 0,
+	},
+};
+
+static void motion_work_handler(struct k_work *work);
+K_WORK_DEFINE(motion_work, motion_work_handler);
 
 struct uart_data_t {
 	void *fifo_reserved;
@@ -553,6 +568,43 @@ void i2c_bus_scan(void)
 	printf("Scan finished\r\n");
 }
 
+
+/* 运动中断回调函数，在中断上下文！不能做耗时操作，只置标志 */
+static void motion_event_cb(void)
+{
+    printf("==== MOTION DETECTED ====\r\n");
+    /* 中断上下文禁止printf/k_sleep；仅设置事件信号量/工作队列 */
+    k_work_submit(&motion_work);
+}
+
+static void motion_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    struct lsm6ds3_data imu;
+    int ret = lsm6ds3_read_data(&imu_cfg, &imu);
+    if(ret == 0)
+    {
+        printf("ACC X:%d Y:%d Z:%d\r\n", imu.acc_x, imu.acc_y, imu.acc_z);
+    }
+}
+
+void test_spi_gpio()
+{
+	const struct device *gpio = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+	gpio_pin_configure(gpio,6,GPIO_OUTPUT);
+	gpio_pin_configure(gpio,7,GPIO_OUTPUT);
+	gpio_pin_configure(gpio,8,GPIO_OUTPUT);
+	gpio_pin_configure(gpio,22,GPIO_OUTPUT);
+
+	if(1)
+	{
+		gpio_pin_toggle(gpio,6);
+		gpio_pin_toggle(gpio,7);
+		gpio_pin_toggle(gpio,22);
+		k_msleep(200);
+	}
+}
+
 int main(void)
 {
 	// int blink_status = 0;
@@ -611,10 +663,31 @@ int main(void)
 	// i2c_bus_scan();
 	// k_msleep(2000);
 
+	int ret = lsm6ds3_init(&imu_cfg, motion_event_cb);
+    if(ret !=0)
+    {
+        printf("lsm6ds3 init fail %d", ret);
+        return -1;
+    }
+
+    printf("lsm6ds3 running, waiting motion interrupt(P0.23)\r\n");
+
 	for (;;) {
 		k_msleep(200 * 1);
 		dw1000_sendpoll();
 		bms_status_echo();
+#if 1
+		struct lsm6ds3_data imu;
+		int ret = lsm6ds3_read_data(&imu_cfg, &imu);
+		if(ret == 0)
+		{
+			// float full_scale_g = 2;
+			lsm6ds3_attitude_t att = {0};
+			lsm6ds3_accel_calc_attitude(imu.acc_x, imu.acc_y, imu.acc_z, 2, &att);
+			printf("ACC roll:%f pitch:%f\r\n", att.roll, att.pitch);
+		}
+#endif
+		// test_spi_gpio();
 		// iic_gpio_test();
 
 		// printf("********************111************\r");
