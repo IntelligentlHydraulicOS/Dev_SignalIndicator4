@@ -6,6 +6,7 @@
 #include "deca_regs.h"
 #include "deca_spi.h"
 #include "port.h"
+#include "bq27441_driver.h"
 
 #include <zephyr/logging/log.h>
 
@@ -113,6 +114,7 @@ void dw1000_sendpoll();
 #define FINAL_MSG_POLL_TX_TS_IDX 12
 #define FINAL_MSG_RESP_RX_TS_IDX 20
 #define FINAL_MSG_FINAL_TX_TS_IDX 28
+#define FINAL_MSG_BAT_INFO_IDX 38
 #define FINAL_MSG_TS_LEN 4
 
 #define RESP_MSG_POLL_RX_TS_IDX 12
@@ -136,8 +138,8 @@ static uint8_t tx_resp_msg[] = {0x41, 0x89, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0
 // static uint8 tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8 rx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-static uint8 rx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static uint8 tx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8 rx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8 tx_final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 #define TX_ANT_DLY 32950
 #define RX_ANT_DLY 0//16505
@@ -307,7 +309,7 @@ void dw1000_sendpoll()
 void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
 {
     uint8 uiCurrentID = 0;
-    uint32 resp_tx_time, final_tx_time;
+    uint32 final_tx_time;
     uiCurrentID = rx_buffer[2];
     
     if(frame_len == sizeof(rx_poll_msg))//auchor receive poll
@@ -318,6 +320,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
         memcpy(tx_resp_msg + ALL_MSG_TAG_MAC, rx_buffer + ALL_MSG_TAG_MAC, 6 * sizeof(uint8_t));
         auchor_poll_rx_ts = get_rx_timestamp_u64();
 #if 0
+        uint32 resp_tx_time;
         resp_tx_time = ((auchor_poll_rx_ts + (POLL_RX_TO_RESP_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8) + /*0x2661AC*/ 0x2F0000;
         uint64_t Tmpresp_tx_ts = (((uint64_t)(resp_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
 
@@ -350,6 +353,7 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
         final_msg_set_ts(&tx_final_msg[FINAL_MSG_FINAL_TX_TS_IDX], Tmpfinal_tx_ts);
 
         tx_final_msg[ALL_MSG_SN_IDX] = uiCurrentID;
+        tx_final_msg[FINAL_MSG_BAT_INFO_IDX] = bat_info.soc;
         dw1000_sendMsg1(tx_final_msg, sizeof(tx_final_msg), DWT_START_TX_DELAYED);
 
         // printf("p_tx:%llx, r_rx:0x%llx, final_tx(0x%llx)\r\n", tag_poll_tx_ts, tag_resp_rx_ts, Tmpfinal_tx_ts);
@@ -377,8 +381,8 @@ void dw1000_parsedata(uint8 *rx_buffer, uint16 frame_len)
         double tof = tof_dtu * DWT_TIME_UNITS;
         double distance = tof * SPEED_OF_LIGHT;
 
-        printf("distance %f\r\n", distance);
-        // printf("pool tx(0x%llx) pool rx(0x%llx) rest tx(0x%llx) rest rx(0x%llx) finnal tx(0x%llx) finnal rx(0x%llx)\r\n", poll_tx_ts, auchor_poll_rx_ts, \
+        printf("distance %f bat_lvl %d\r\n", distance, rx_buffer[FINAL_MSG_BAT_INFO_IDX]);
+        // printf("pool tx(0x%llx) pool rx(0x%llx) rest tx(0x%llx) rest rx(0x%llx) finnal tx(0x%llx) finnal rx(0x%llx)\r\n", poll_tx_ts, auchor_poll_rx_ts,
         //     auchor_resp_tx_ts, resp_rx_ts, final_tx_ts, auchor_final_rx_ts);
         dwt_rxenable(DWT_START_RX_IMMEDIATE);
     }
