@@ -11,7 +11,6 @@
 #include "shared_defines.h"
 #include "shared_functions.h"
 #include "config_options.h"
-#include "RS485_deal.h"
 
 #define ALL_MSG_SN_IDX 2
 #define ALL_MSG_TAG_MAC 3
@@ -347,8 +346,6 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
         uiRS485Buffer[9] = uiDistance & 0xff;
         uiRS485Buffer[10] = (uiDistance & 0xff00) >> 8;
         uiRS485Buffer[11] = 0xFA;
-
-        sendMsgdata2RS485uart(uiRS485Buffer, 12);
 
         printf("[%s %d] ID(%d)  mac(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x) distance %f \r\n", __func__, __LINE__, uiCurrentID, rx_buffer[ALL_MSG_TAG_MAC], rx_buffer[ALL_MSG_TAG_MAC + 1], \
                 rx_buffer[ALL_MSG_TAG_MAC + 2], rx_buffer[ALL_MSG_TAG_MAC + 3], rx_buffer[ALL_MSG_TAG_MAC + 4], rx_buffer[ALL_MSG_TAG_MAC + 5], distance);

@@ -19,6 +19,7 @@ struct dw3000_config {
 	struct gpio_dt_spec gpio_wakeup;
 	struct gpio_dt_spec gpio_spi_pol;
 	struct gpio_dt_spec gpio_spi_pha;
+	struct gpio_dt_spec gpio_pd;
 };
 
 static const struct dw3000_config conf = {
@@ -26,12 +27,19 @@ static const struct dw3000_config conf = {
 	.gpio_reset = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_rst), gpios),
 	.gpio_wakeup = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_wakeup), gpios),
 	.gpio_sync = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_sync), gpios),
+	.gpio_pd = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_pd), gpios),
 /*	.gpio_spi_pol = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_cs), gpios),
 	.gpio_spi_pha = GPIO_DT_SPEC_GET(DT_NODELABEL(dw3000_cs), gpios),*/
 };
 
 int dw3000_hw_init(void)
 {
+	if(conf.gpio_pd.port) {
+		gpio_pin_configure_dt(&conf.gpio_pd, GPIO_OUTPUT_ACTIVE);
+		printk("[%s %d] PD on %s pin %d\n", __func__, __LINE__, conf.gpio_pd.port->name,
+				conf.gpio_pd.pin);
+	}
+
 	/* Reset */
 	if (conf.gpio_reset.port) {
 		gpio_pin_configure_dt(&conf.gpio_reset, GPIO_OUTPUT_ACTIVE);
@@ -77,6 +85,7 @@ int dw3000_hw_init_interrupt(void)
 		gpio_init_callback(&gpio_cb, dw3000_hw_isr, BIT(conf.gpio_irq.pin));
 		gpio_add_callback(conf.gpio_irq.port, &gpio_cb);
 		// gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_EDGE_BOTH/*GPIO_INT_EDGE_RISING*/);
+		gpio_pin_interrupt_configure_dt(&conf.gpio_irq, GPIO_INT_DISABLE);
 		dw3000_irs_flag = false;
 		printk("[%s %d] IRQ on %s pin %d\n", __func__, __LINE__, conf.gpio_irq.port->name,
 				conf.gpio_irq.pin);
@@ -139,7 +148,7 @@ void dw3000_hw_sync()
 	}
 
 	gpio_pin_configure_dt(&conf.gpio_sync, GPIO_OUTPUT_INACTIVE);
-	k_busy_wait(1); // 1usÂö³å£¬¹¤³ÌÎÈÍ×
+	k_busy_wait(1); // 1usï¿½ï¿½ï¿½å£¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	gpio_pin_configure_dt(&conf.gpio_sync, GPIO_OUTPUT_ACTIVE);
 }
 

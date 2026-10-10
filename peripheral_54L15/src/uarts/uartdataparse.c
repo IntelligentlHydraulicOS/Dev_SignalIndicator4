@@ -2,10 +2,10 @@
 
 #include "uartdataparse.h"
 #include "ledlight.h"
-#include "zigbee_deal.h"
+// #include "zigbee_deal.h"
 #include "config.h"
 #include "sensordeal.h"
-#include "RS485_deal.h"
+// #include "RS485_deal.h"
 #include "nus_manage.h"
 #include "peripheral_manage.h"
 #include "dw3000_node.h"
@@ -127,7 +127,7 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
     {
         if(uiFromPort == 2)
         {
-            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+            // sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
         }
         else
         {
@@ -168,7 +168,7 @@ void RS485_uart_dataparse(uint8_t *uiData, uint16_t uiLen, uint8_t uiFromPort)
     }
     else if(uiData[0] == 0xA1 && uiData[1] == 0xA2)
     {
-        sendMsgdata2Zigbeeuart(uiData, uiLen);
+        // sendMsgdata2Zigbeeuart(uiData, uiLen);
     }
     else if(uiData[0] == 0x11 && uiData[1] == 0x22)
     {

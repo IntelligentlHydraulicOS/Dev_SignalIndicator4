@@ -1,5 +1,7 @@
-/ {
+#include <zephyr/dt-bindings/regulator/npm13xx.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
 
+/ {
 	/delete-node/ leds;
 	/delete-node/ buttons;
 	/delete-node/ pwmleds;
@@ -28,141 +30,72 @@
 	};
 
 	chosen {
-		zephyr,console = &uart22;
-		zephyr,shell-uart = &uart22;
+		zephyr,console = &uart20;
+		zephyr,shell-uart = &uart20;
 	};
 
-	// /delete-node/ nordic_expansion_header;
-
 	dw3000_irq: dw3000-irq {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 
 	heart_led: heart-led {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
-        status = "okay";
-    };
-
-	rs485_gpio: rs485-gpio {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
-
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
 	dw3000_rst: dw3000-rst {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio2 10 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio2 10 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 
 	dw3000_wakeup: dw3000-wakeup {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio2 7 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
-
-	// dw3000_cs: dw3000-cs {
-    //     compatible = "nordic,gpio-pins";
-    //     gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
-    //     status = "okay";
-    // };
-
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio2 7 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 	dw3000_pd: dw3000-pd {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio1 10 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio2 0 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 
 	dw3000_sync: dw3000-sync {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
-        status = "okay";
-    };
-
-	zigbee_mode: zigbee-mode {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio1 2 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
-
-	zigbee_m01: zigbee-m01 {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
-
-	zigbee_m00: zigbee-m00 {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
-        status = "okay";
-    };
-/*
-	ws2811_gpio: ws2811-gpio {
-        compatible = "nordic,gpio-pins";
-        gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
-        status = "okay";
-    };
-*/
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
 };
 
 &pinctrl{
-	/omit-if-no-ref/ uart20_only_default: uart20_only_default {
-		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 4)>;
-		};
-
-		group2 {
-			psels = <NRF_PSEL(UART_RX, 1, 5)>;
-			bias-pull-up;
-		};
-	};
-
-	/omit-if-no-ref/ uart20_only_sleep: uart20_only_sleep {
-		group1 {
-			psels = <NRF_PSEL(UART_RX, 1, 5)>;
-			low-power-enable;
-		};
-
-		group2 {
-			psels = <NRF_PSEL(UART_TX, 1, 4)>;
-			low-power-enable;
-			bias-pull-up;
-		};
-	};
-
 	/omit-if-no-ref/ uart21_only_default: uart21_only_default {
 		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 12)>;//P1.12
+			psels = <NRF_PSEL(UART_TX, 1, 12)>;
 		};
-
 		group2 {
 			psels = <NRF_PSEL(UART_RX, 1, 13)>;
 			bias-pull-up;
 		};
 	};
-
 	/omit-if-no-ref/ uart21_only_sleep: uart21_only_sleep {
 		group1 {
 			psels = <NRF_PSEL(UART_TX, 1, 12)>,
-				<NRF_PSEL(UART_RX, 1, 13)>;
-			// bias-pull-up;
+					<NRF_PSEL(UART_RX, 1, 13)>;
 			low-power-enable;
 		};
 	};
-
-	/omit-if-no-ref/ uart22_only_default: uart22_only_default {
+	/omit-if-no-ref/ uart20_only_default: uart20_only_default {
 		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 9)>;
-			// bias-pull-up;
+			psels = <NRF_PSEL(UART_TX, 1, 9)>,
+                    		<NRF_PSEL(UART_RX, 1, 6)>;
 		};
 	};
-
-	/omit-if-no-ref/ uart22_only_sleep: uart22_only_sleep {
+	/omit-if-no-ref/ uart20_only_sleep: uart20_only_sleep {
 		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 9)>;
+			psels = <NRF_PSEL(UART_TX, 1, 9)>,
+                    		<NRF_PSEL(UART_RX, 1, 6)>;
 			bias-pull-up;
 			low-power-enable;
 		};
@@ -171,35 +104,55 @@
 	/omit-if-no-ref/ spi00_default: spi00_default {
 		group1 {
 			psels = <NRF_PSEL(SPIM_SCK, 2, 6)>,
-				<NRF_PSEL(SPIM_MOSI, 2, 8)>,
-				<NRF_PSEL(SPIM_MISO, 2, 9)>;
+					<NRF_PSEL(SPIM_MOSI, 2, 8)>,
+					<NRF_PSEL(SPIM_MISO, 2, 9)>;
 		};
 	};
 
 	/omit-if-no-ref/ spi00_sleep: spi00_sleep {
 		group1 {
 			psels = <NRF_PSEL(SPIM_SCK, 2, 6)>,
-				<NRF_PSEL(SPIM_MOSI, 2, 8)>,
-				<NRF_PSEL(SPIM_MISO, 2, 9)>;
+					<NRF_PSEL(SPIM_MOSI, 2, 8)>,
+					<NRF_PSEL(SPIM_MISO, 2, 9)>;
 			low-power-enable;
 		};
 	};
-/*
-	pwm20_custom: pwm20_custom {
-        group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 1, 11)>;
-        };
-    };
-    pwm20_csleep: pwm20_csleep {
-        group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 1, 11)>;
-            low-power-enable;
-        };
-    };
-*/
+	/omit-if-no-ref/ i2c22_default: i2c22_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 5)>,
+					<NRF_PSEL(TWIM_SCL, 1, 4)>;
+		};
+	};
+	/omit-if-no-ref/ i2c22_sleep: i2c22_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 5)>,
+					<NRF_PSEL(TWIM_SCL, 1, 4)>;
+			low-power-enable;
+		};
+	};
+	/omit-if-no-ref/ i2c21_default: i2c21_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 10)>,
+					<NRF_PSEL(TWIM_SCL, 1, 11)>;
+		};
+	};
+	/omit-if-no-ref/ i2c21_sleep: i2c21_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 10)>,
+					<NRF_PSEL(TWIM_SCL, 1, 11)>;
+			low-power-enable;
+		};
+	};
 };
 
-//RS485
+&uart21 {
+	current-speed = <115200>;
+	pinctrl-0 = <&uart21_only_default>;
+	pinctrl-1 = <&uart21_only_sleep>;
+	pinctrl-names = "default", "sleep";
+	status = "disabled";
+};
+
 &uart20 {
 	current-speed = <115200>;
 	pinctrl-0 = <&uart20_only_default>;
@@ -208,47 +161,15 @@
 	status = "okay";
 };
 
-//zigbee
-&uart21 {
-	current-speed = <115200>;
-	pinctrl-0 = <&uart21_only_default>;
-	pinctrl-1 = <&uart21_only_sleep>;
-	pinctrl-names = "default", "sleep";
-	status = "okay";
-};
-
-&uart22 {
-	current-speed = <115200>;
-	pinctrl-0 = <&uart22_only_default>;
-	pinctrl-1 = <&uart22_only_sleep>;
-	pinctrl-names = "default", "sleep";
-	disable-rx;  /* 禁用接收 */
-	status = "okay";
-};
-
-&uart30 {
-	/delete-property/ current-speed;
-	/delete-property/ pinctrl-0;
-	/delete-property/ pinctrl-1;
-	/delete-property/ pinctrl-names;
-	status = "disabled";
-};
-
 &pwm20{
 	/delete-property/ pinctrl-0;
 	/delete-property/ pinctrl-1;
 	/delete-property/ pinctrl-names;
 	status = "disabled";
-/*
-    pinctrl-0 = <&pwm20_custom>;
-    pinctrl-1 = <&pwm20_csleep>;
-    pinctrl-names = "default", "sleep";
-*/
 };
 
-/* 将 NFC 引脚释放为 GPIO */
 &uicr {
-    nfct-pins-as-gpios;
+	nfct-pins-as-gpios;
 };
 
 &nfct {
@@ -264,8 +185,8 @@ nordic_expansion_spi: &spi22 {
 };
 
 &lfxo {
-    load-capacitors = "external";
-    load-capacitance-femtofarad = <12000>;
+	load-capacitors = "external";
+	load-capacitance-femtofarad = <12000>;
 };
 
 &spi00 {
@@ -276,15 +197,96 @@ nordic_expansion_spi: &spi22 {
 	pinctrl-names = "default", "sleep";
 
 	/delete-node/ mx25r6435f@0;
-	// dw3000@0 {
-	// 	compatible = "decawave,dw3000";
-	// 	spi-max-frequency = <32000000>;
-	// 	reg = <0>;
-	// 	reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>;
-	// 	irq-gpios = <&gpio2 2 GPIO_ACTIVE_HIGH>;
-	// };
 };
 
-&spi22 {
-	status = "disabled";
+i2c_npm13xx: &i2c22 {
+	status = "okay";
+	pinctrl-0 = <&i2c22_default>;
+	pinctrl-1 = <&i2c22_sleep>;
+	pinctrl-names = "default", "sleep";
 };
+
+i2c_bma253: &i2c21 {
+	status = "okay";
+	pinctrl-0 = <&i2c21_default>;
+	pinctrl-1 = <&i2c21_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+
+&i2c_npm13xx {
+	npm1300_ek_pmic: pmic@6b {
+		compatible = "nordic,npm1300";
+		reg = <0x6b>;
+
+		/* host-int-gpios = <&gpio0 4 0>;
+		pmic-int-pin = <3>; */
+
+		ship-to-active-time-ms = <96>;
+		long-press-reset = "one-button";
+		npm1300_gpio: gpio-controller {
+			compatible = "nordic,npm1300-gpio";
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <5>;
+		};
+
+		npm1300_ek_charger: charger {
+			compatible = "nordic,npm1300-charger";
+			vbus-limit-microamp = <100000>;
+
+            		thermistor-ohms = <10000>;
+            		thermistor-beta = <3380>;
+			trickle-microvolt = <2500000>;
+
+			disable-recharge;
+			dietemp-resume-millidegrees = <100000>;
+        		dietemp-stop-millidegrees = <110000>;
+			term-microvolt = <3500000>;
+        		term-warm-microvolt = <3600000>;
+			current-microamp = <32000>;
+			dischg-limit-microamp = <1000000>;
+			term-current-percent = <10>;
+		};
+
+		npm1300_ek_leds: leds {
+			compatible = "nordic,npm1300-led";
+			nordic,led0-mode = "error";
+			nordic,led1-mode = "charging";
+			nordic,led2-mode = "host";
+		};
+
+		regulators {
+			compatible = "nordic,npm1300-regulator";
+			buck1: BUCK1 {
+				status = "okay";
+				regulator-boot-on;
+				regulator-init-microvolt = <3300000>;
+				regulator-min-microvolt = <1000000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-initial-mode = <NPM13XX_BUCK_MODE_AUTO>;
+			};
+			buck2: BUCK2 {
+				status = "okay";
+				regulator-boot-on;
+				regulator-init-microvolt = <3300000>;
+				regulator-min-microvolt = <1000000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-initial-mode = <NPM13XX_BUCK_MODE_AUTO>;
+			};
+			ldo1: LDO1 {
+				regulator-min-microvolt = <1000000>;
+       				regulator-max-microvolt = <3300000>;
+				regulator-initial-mode = <NPM13XX_LDSW_MODE_LDSW>;
+				soft-start-microamp = <100000>;
+			};
+			ldo2: LDO2 {
+				regulator-min-microvolt = <1000000>;
+        			regulator-max-microvolt = <3300000>;
+				regulator-initial-mode = <NPM13XX_LDSW_MODE_LDSW>;
+				soft-start-microamp = <100000>;
+			};
+		};
+	};
+};
+

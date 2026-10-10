@@ -1,5 +1,5 @@
 #include "sensordeal.h"
-#include "RS485_deal.h"
+// #include "RS485_deal.h"
 #include "central_manage.h"
 #include "peripheral_manage.h"
 
@@ -276,7 +276,7 @@ void Sensor_Info_Respone_Interval()
 
     if(uiNum)
     {
-        sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+        // sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
         peripheral_send_message(uiBuffer, uiBuffer[3] + 4);
     }
 }
@@ -321,7 +321,7 @@ void Sensor_Info_Respone_All(uint8_t uiFromPort)
         }
         else if(uiFromPort == 2)
         {
-            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+            // sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
         }
     }
 }
@@ -364,7 +364,7 @@ void cmd_Get_Sensor_Respose(uint8_t uiFromPort)
         }
         else if(uiFromPort == 2)
         {
-            sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
+            // sendMsgdata2RS485uart(uiBuffer, uiBuffer[3] + 4);
         }
     }
 }

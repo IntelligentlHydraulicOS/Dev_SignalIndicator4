@@ -18,8 +18,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "RS485_deal.h"
-#include "zigbee_deal.h"
 #include "dw3000_node.h"
 #include "ledlight.h"
 
@@ -30,6 +28,43 @@
 #include "sensordeal.h"
 #include "config.h"
 
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/mfd/npm13xx.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/settings/settings.h>
+#include <zephyr/sys/printk.h>
+#include "fuel_gauge.h"
+#include <zephyr/drivers/uart.h>
+#include "imu_driver/bma253_example.h"
+
+
+#if DT_NODE_EXISTS(DT_NODELABEL(npm1300_ek_pmic))
+#define NPM13XX_DEVICE(dev) DEVICE_DT_GET(DT_NODELABEL(npm1300_ek_##dev))
+#elif DT_NODE_EXISTS(DT_NODELABEL(npm1304_ek_pmic))
+#define NPM13XX_DEVICE(dev) DEVICE_DT_GET(DT_NODELABEL(npm1304_ek_##dev))
+#else
+#error "neither npm1300 nor npm1304 found in devicetree"
+#endif
+
+static const struct device *pmic = NPM13XX_DEVICE(pmic);
+static const struct device *charger = NPM13XX_DEVICE(charger);
+static volatile bool vbus_connected;
+
+static void event_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	if (pins & BIT(NPM13XX_EVENT_VBUS_DETECTED)) {
+		printk("Vbus connected\n");
+		vbus_connected = true;
+	}
+
+	if (pins & BIT(NPM13XX_EVENT_VBUS_REMOVED)) {
+		printk("Vbus removed\n");
+		vbus_connected = false;
+	}
+}
+
 void error(void)
 {
 	while (true) {
@@ -38,12 +73,70 @@ void error(void)
 	}
 }
 
+int bms_init(void)
+{
+	int err;
+
+	if (!device_is_ready(pmic)) {
+		printk("Pmic device not ready.\n");
+		return 0;
+	}
+
+	if (!device_is_ready(charger)) {
+		printk("Charger device not ready.\n");
+		return 0;
+	}
+
+	if (fuel_gauge_init(charger) < 0) {
+		printk("Could not initialise fuel gauge.\n");
+		return 0;
+	}
+
+	static struct gpio_callback event_cb;
+
+	gpio_init_callback(&event_cb, event_callback,
+			   BIT(NPM13XX_EVENT_VBUS_DETECTED) | BIT(NPM13XX_EVENT_VBUS_REMOVED));
+
+	err = mfd_npm13xx_add_callback(pmic, &event_cb);
+	if (err) {
+		printk("Failed to add pmic callback.\n");
+		return 0;
+	}
+
+	/* Initialise vbus detection status. */
+	struct sensor_value val;
+	int ret = sensor_attr_get(charger, SENSOR_CHAN_CURRENT, SENSOR_ATTR_UPPER_THRESH, &val);
+
+	if (ret < 0) {
+		return false;
+	}
+
+	vbus_connected = (val.val1 != 0) || (val.val2 != 0);
+
+	printk("PMIC device ok\n");
+#if 0
+	while (1) {
+		fuel_gauge_update(charger, vbus_connected);
+		k_msleep(100);
+	}
+#endif
+	return 0;
+}
+
+
 int main(void)
 {
+	printf("Starting signal convert v4 app...\n");
+	k_msleep(2000);                 /* 有些 USB-TTL/终端打开时会吞掉开头数据 */
+	printk("=== printk ok ===\n");  /* 你原来的 printf 前一行 */
+	printf("=== printf ok ===\n");
+	fflush(stdout);
+
+	bms_init();
 	nrfConfigInit();
 	LedLightInit();
-	RS485_deal_init();
-	Zigbee_deal_init();
+	// RS485_deal_init();
+	// Zigbee_deal_init();
 	dw3000_hw_node_init();
 
 #if 1
@@ -76,15 +169,17 @@ int main(void)
 	bt_central_scan_init();
 	bt_centralscan_start();
 #endif
-	RS485_dealsetuartReceive();
-	Zigbee_dealsetuartReceive();
 	
 	dw3000_node_run();
+	bma253_example_init();
+
 	for (;;) {
+		fuel_gauge_update(charger, vbus_connected);
 		Function_of_indicator_lights();
-		k_msleep(100);
 		Sensor_Info_Respone_Interval();
 		dw1000_sendpoll();
+		bma253_example_poll();
+		k_msleep(1000);
 	}
 }
 

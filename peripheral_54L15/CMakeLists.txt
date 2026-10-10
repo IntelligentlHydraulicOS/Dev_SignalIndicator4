@@ -21,13 +21,13 @@ target_include_directories(app PRIVATE src/dwt/dw3000_hw)
 target_include_directories(app PRIVATE src/dwt/dw3000_node)
 target_include_directories(app PRIVATE src/dwt/shared_data)
 target_include_directories(app PRIVATE src/dwt/platform)
+target_include_directories(app PRIVATE src/bms_driver)
+target_include_directories(app PRIVATE src/imu_driver)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
   src/led/ws2811_gpio.c
   src/led/ledlight.c
-  src/uarts/RS485_deal.c
-  src/uarts/zigbee_deal.c
   src/uarts/uartdataparse.c
   src/lib/qmath.c
   src/dwt/dw3000/deca_rsl.c
@@ -48,6 +48,9 @@ target_sources(app PRIVATE
   src/ble/central_manage.c
   src/sensor/sensordeal.c
   src/config/config.c
+  src/bms_driver/fuel_gauge.c
+  src/imu_driver/bma253_i2c_driver.c
+  src/imu_driver/bma253_example.c
 )
 
 # NORDIC SDK APP END
