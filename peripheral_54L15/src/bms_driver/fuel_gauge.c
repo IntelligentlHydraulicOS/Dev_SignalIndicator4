@@ -68,6 +68,19 @@ static int charge_status_inform(int32_t chg_status)
 {
 	union nrf_fuel_gauge_ext_state_info_data state_info;
 
+	/* 【诊断】把 CHG 状态寄存器原始值打印出来，便于确认充电是否启动。
+	 * 位定义（nPM1300 BCHGCHARGESTATUS）：
+	 *   bit0 = CHG_EN（充电使能）  bit1 = COMPLETE  bit2 = TRICKLE
+	 *   bit3 = CC（恒流）          bit4 = CV（恒压）
+	 * 若 bit0 一直是 0，说明 charging-enable 没生效。 */
+	printk("CHG status(0x%02X) EN=%u COMPLETE=%u TRICKLE=%u CC=%u CV=%u\n",
+	       (unsigned)chg_status,
+	       (unsigned)(chg_status & BIT(0) ? 1 : 0),
+	       (unsigned)((chg_status & NPM13XX_CHG_STATUS_COMPLETE_MASK) ? 1 : 0),
+	       (unsigned)((chg_status & NPM13XX_CHG_STATUS_TRICKLE_MASK) ? 1 : 0),
+	       (unsigned)((chg_status & NPM13XX_CHG_STATUS_CC_MASK) ? 1 : 0),
+	       (unsigned)((chg_status & NPM13XX_CHG_STATUS_CV_MASK) ? 1 : 0));
+
 	if (chg_status & NPM13XX_CHG_STATUS_COMPLETE_MASK) {
 		printk("Charge complete\n");
 		state_info.charge_state = NRF_FUEL_GAUGE_CHARGE_STATE_COMPLETE;

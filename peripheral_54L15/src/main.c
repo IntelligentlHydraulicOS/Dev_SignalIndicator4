@@ -113,7 +113,21 @@ int bms_init(void)
 
 	vbus_connected = (val.val1 != 0) || (val.val2 != 0);
 
-	printk("PMIC device ok\n");
+	/* 【诊断】直接读"期望充电电流"属性：驱动返回的是 CHGR 的
+	 * EN_SET 寄存器（CHGR_BASE+0x04）。它 != 0 才说明充电被使能。
+	 * 若此处读到 0，就是 charging-enable 没生效。 */
+	{
+		struct sensor_value chg_en;
+
+		if (sensor_attr_get(charger, SENSOR_CHAN_GAUGE_DESIRED_CHARGING_CURRENT,
+				    SENSOR_ATTR_CONFIGURATION, &chg_en) == 0) {
+			printk("充电使能位 CHGR EN_SET = 0x%02X (%s)\n",
+			       (unsigned)chg_en.val1,
+			       (chg_en.val1 != 0) ? "已使能" : ">>> 未使能 <<<");
+		}
+	}
+
+	printk("PMIC device ok (VBUS %s)\n", vbus_connected ? "已接入" : "未接入");
 #if 0
 	while (1) {
 		fuel_gauge_update(charger, vbus_connected);
@@ -141,6 +155,7 @@ int main(void)
 
 #if 1
 	int err = 0;
+	uint64_t last_print_time = 0;
 	nus_security_init();
 	err = bt_enable(NULL);
 	if (err) {
@@ -174,12 +189,15 @@ int main(void)
 	bma253_example_init();
 
 	for (;;) {
-		fuel_gauge_update(charger, vbus_connected);
+		if(k_uptime_get() - last_print_time > 5000) {
+			last_print_time = k_uptime_get();
+			fuel_gauge_update(charger, vbus_connected);
+			bma253_example_poll();
+		}
 		Function_of_indicator_lights();
 		Sensor_Info_Respone_Interval();
 		dw1000_sendpoll();
-		bma253_example_poll();
-		k_msleep(1000);
+		k_msleep(100);
 	}
 }
 

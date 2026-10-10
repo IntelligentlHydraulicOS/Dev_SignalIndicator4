@@ -235,17 +235,44 @@ i2c_bma253: &i2c21 {
 			compatible = "nordic,npm1300-charger";
 			vbus-limit-microamp = <100000>;
 
-            		thermistor-ohms = <10000>;
-            		thermistor-beta = <3380>;
+			thermistor-ohms = <10000>;
+			thermistor-beta = <3380>;
 			trickle-microvolt = <2500000>;
 
-			disable-recharge;
+			/*
+			 * 【关键】必须显式写 charging-enable。
+			 * 它是布尔属性、没有 default，驱动里是
+			 *     if (config->charging_enable) {
+			 *             ... CHGR_OFFSET_EN_SET = 1 ...
+			 *     }
+			 * 不写 => 从不置 EN_SET 位 => 充电永不启动。
+			 */
+			charging-enable;
+
+			/*
+			 * 允许在低于 vbatlow 阈值时也充电。
+			 * 没有这一条时，电池电压很低（本机读数 ~2.95V）会被拒绝充电。
+			 */
+			vbatlow-charge-enable;
+
+			/*
+			 * 不要写 disable-recharge：它禁止充满后的自动再充电，
+			 * 会让电池掉电后无法回充。
+			 */
+
 			dietemp-resume-millidegrees = <100000>;
-        		dietemp-stop-millidegrees = <110000>;
-			term-microvolt = <3500000>;
-        		term-warm-microvolt = <3600000>;
+			dietemp-stop-millidegrees = <110000>;
+
+			/* 单节 Li-ion 满充 4.2V；官方参考用 4.15V。
+			 * 原来的 3.5V 太低，电池几乎充不进电。 */
+			term-microvolt = <4150000>;
+			term-warm-microvolt = <4000000>;
+
 			current-microamp = <32000>;
 			dischg-limit-microamp = <1000000>;
+
+			/* 充满判定电流 = current-microamp 的百分比。
+			 * 绑定里是枚举 10 或 20，默认 10。 */
 			term-current-percent = <10>;
 		};
 

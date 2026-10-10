@@ -74,6 +74,7 @@ int bma253_example_init(void)
 
 	printk("BMA253 就绪\n");
 
+#if 0
 	/* ---------- 先确认传感器活着 ----------
 	 * 若输出寄存器被冻结，三个姿态会读到完全相同的值，
 	 * 此时校准毫无意义，先尝试恢复序列。 */
@@ -121,7 +122,7 @@ int bma253_example_init(void)
 
 	/* ---------- 诊断（全部只读，不写任何寄存器） ---------- */
 	(void)bma253_probe_ctrl_regs();
-
+#endif
 	return 0;
 }
 
@@ -224,10 +225,15 @@ void bma253_example_poll(void)
 	if (bma253_read(&bma253, &s) < 0) {
 		return;
 	}
-
+	printk("BMA253: raw=%6d,%6d,%6d  g=%.3f,%.3f,%.3f  m/s²=%.3f,%.3f,%.3f\n",
+	       s.raw_x, s.raw_y, s.raw_z,
+	       s.x_g, s.y_g, s.z_g,
+	       s.x_ms2, s.y_ms2, s.z_ms2);
+#if 0
 	/* 四视图：同时给出 16位/>>3/>>4/>>5 四种解释，用于确定真实数据格式。
 	 * 改变板子姿态时，哪一列表现出"某轴≈±1g、另两轴≈0"，那列就是对的。 */
 	bma253_print_raw_views();
+#endif
 }
 
 /**

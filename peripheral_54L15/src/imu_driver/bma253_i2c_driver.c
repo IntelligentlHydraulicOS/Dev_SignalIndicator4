@@ -126,7 +126,7 @@ int bma253_reg_read_burst(struct bma253_data *dev, uint8_t start_reg,
 			break;
 		}
 	}
-#if 1
+#if 0
 	printf("bma253_reg_read_burst: start_reg=0x%02X, len=%u, ret=%d\n",
 	       start_reg, len, ret);
 	printf("bma253_reg_read_burst: data=");
