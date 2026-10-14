@@ -39,6 +39,7 @@
 #include <zephyr/drivers/uart.h>
 #include "imu_driver/bma253_example.h"
 #include "buzzer/buzzer.h"
+#include "power_mgr/power_mgr.h"
 
 
 #if DT_NODE_EXISTS(DT_NODELABEL(npm1300_ek_pmic))
@@ -152,7 +153,10 @@ int main(void)
 	LedLightInit();
 	// RS485_deal_init();
 	// Zigbee_deal_init();
-	dw3000_hw_node_init();
+
+	/* 低功耗状态机：管理 BUCK2(UWB) 上下电与 ship mode。
+	 * 注意：UWB 不再在这里常开，改由运动检测触发上电。 */
+	power_mgr_init();
 
 #if 1
 	int err = 0;
@@ -186,21 +190,30 @@ int main(void)
 	bt_centralscan_start();
 #endif
 	
-	dw3000_node_run();
 	bma253_example_init();
 
 	buzzer_init();
 
 	for (;;) {
-		if(k_uptime_get() - last_print_time > 5000) {
+		if (k_uptime_get() - last_print_time > 5000) {
 			last_print_time = k_uptime_get();
 			fuel_gauge_update(charger, vbus_connected);
 			bma253_example_poll();
-			buzzer_on(100);
 		}
 		Function_of_indicator_lights();
 		Sensor_Info_Respone_Interval();
-		dw1000_sendpoll();
+
+		/* 低功耗状态机：只判断 30s 深度休眠（进 ship mode）。
+		 * 10s 活动窗口由 power_mgr 内部的 k_timer 精确计时，
+		 * 不依赖这个循环的调用频率。 */
+		power_mgr_sleep_check();
+
+		/* 只在「运动触发的 10s 活动窗口」内才发送 UWB 轮询。
+		 * 窗口外 UWB 已进入低功耗，调用它没有意义。 */
+		if (power_mgr_uwb_is_active()) {
+			dw1000_sendpoll();
+		}
+
 		k_msleep(100);
 	}
 }

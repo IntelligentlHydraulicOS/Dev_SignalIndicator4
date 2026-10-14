@@ -32,11 +32,15 @@
 
 #include "bma253_i2c_driver.h"
 #include "bma253_example.h"
+#include "power_mgr.h"
 
 /* I2C 总线：对应 overlay 里的 i2c_bma253: &i2c30 */
 #define BMA253_BUS_NODE  DT_NODELABEL(i2c_bma253)
 
 static struct bma253_data bma253;
+
+/* 被忽略的伪中断累计次数（电气干扰） */
+static uint32_t noise_irq_count;
 
 /**
  * @brief 扫描总线并初始化 BMA253
@@ -249,49 +253,104 @@ static void bma253_int1_handler(const struct device *port,
 	ARG_UNUSED(cb);
 	ARG_UNUSED(pins);
 
-	/* 【重要】中断上下文绝对不能调 I2C！
-	 * I2C 驱动内部用 k_sem_take 带超时等待，而中断里不允许阻塞，
-	 * 否则触发内核断言崩溃（sem.c:136）。
-	 * printk 同理也不能在这里调。
+	/* 【重要】中断上下文的两条铁律：
 	 *
-	 * 所以这里只提交一个 work，实际读取放到工作队列线程。 */
+	 * 1) 不能调 I2C（也不能调任何会阻塞等待的 API）。
+	 *    I2C 驱动内部用 k_sem_take 带超时等待，中断里不允许阻塞，
+	 *    否则触发内核断言崩溃（sem.c:136）。
+	 * 2) 不能用 printf，要用 printk。
+	 *    printf 走 picolibc 的 stdout，是带缓冲的：ISR 里打完就返回，
+	 *    永远不会 fflush，输出留在缓冲区里看不到；而且 printf 内部
+	 *    有 stdio 锁，主线程若正持有会死锁。
+	 *    printk 用内部 spinlock，中断安全且不缓冲。 */
 	motion_count++;
 	k_work_submit(&motion_work);
+
+	printk("[%6d ms] INT1 上升沿 #%u\n",
+	       (int)k_uptime_get(), (unsigned)motion_count);
 }
 
-/** @brief 工作队列线程：读 AOI1_SRC 清锁存并打印 */
+/** @brief 两点欧氏距离的平方根（避免引入 math.h） */
+static double dist3(double dx, double dy, double dz)
+{
+	double v = dx * dx + dy * dy + dz * dz;
+	double g = v;
+
+	if (g > 1.0) {
+		for (int i = 0; i < 32; i++) {
+			g = 0.5 * (g + v / g);
+		}
+	}
+	return g;
+}
+
+/** @brief 工作队列线程：清锁存、校验真伪运动、上报状态机 */
 static void motion_work_handler(struct k_work *work)
 {
+	/* 上一次的加速度样本（用于变化量比较） */
+	static bool have_last;
+	static double last_x, last_y, last_z;
 	static int64_t last_ms;
+
 	int64_t now = k_uptime_get();
 	uint32_t n = motion_count;
 	uint8_t src = 0U;
+	struct bma253_sample s;
+	double delta;
 	int ret;
 
 	ARG_UNUSED(work);
 
-	/* 在工作队列线程上下文读（这里可以阻塞、可以 printk）。
-	 * 读 AOI1_SRC 同时会清除锁存的中断，让 INT1 释放，
-	 * 下一次运动才能产生新的上升沿。 */
+	/* 1) 读 AOI1_SRC —— 必须读，它会清除锁存让 INT1 释放，
+	 *    否则下一次运动不会产生新的上升沿。
+	 *    注意：这颗克隆件的 IA(bit7) 不可靠（真实运动时也可能是 0），
+	 *    所以 **不能** 用 IA 做过滤判据。 */
 	ret = bma253_motion_read_src(&bma253, &src);
 	motion_src = src;
 
-	if (src & BMA253_AOI_SRC_IA) {
-		/* 芯片确实检测到了运动事件 */
-		printk("[%6lld ms, +%4lld ms] 运动 #%u：SRC=0x%02X",
-		       now, (last_ms != 0) ? (now - last_ms) : 0LL,
-		       (unsigned)n, src);
-		if (src & BMA253_AOI_SRC_Z_HIGH) { printk(" Z高"); }
-		if (src & BMA253_AOI_SRC_Y_HIGH) { printk(" Y高"); }
-		if (src & BMA253_AOI_SRC_X_HIGH) { printk(" X高"); }
-		printk("\n");
+	/* 2) 读当前加速度，与上次样本比较合矢量变化量。
+	 *    这个判据由我们自己的换算决定，不依赖芯片的任何状态位。 */
+	if (bma253_read(&bma253, &s) < 0) {
+		printk("[%6lld ms] 运动候选 #%u：读加速度失败（%d），已忽略\n",
+		       now, (unsigned)n, ret);
+		last_ms = now;
+		return;
+	}
+
+	if (!have_last) {
+		last_x = s.x_g;
+		last_y = s.y_g;
+		last_z = s.z_g;
+		have_last = true;
+		delta = 0.0;
 	} else {
-		/* 引脚有电平变化但芯片没报事件 —— 电气干扰！
-		 * 常见来源：INT1 走线被 I2C/SPI/UWB 串扰，或引脚悬空。 */
-		printk("[%6lld ms, +%4lld ms] 伪中断 #%u：读回 SRC=0x%02X"
-		       "（芯片未报事件，%s）\n",
-		       now, (last_ms != 0) ? (now - last_ms) : 0LL,
-		       (unsigned)n, src, (ret < 0) ? "I2C 读失败" : "疑似电气干扰");
+		delta = dist3(s.x_g - last_x, s.y_g - last_y, s.z_g - last_z);
+		last_x = s.x_g;
+		last_y = s.y_g;
+		last_z = s.z_g;
+	}
+
+	/* 3) 判据：合矢量变化量 >= 阈值才算真实运动。
+	 *    阈值取自 bma253_motion_config.h 的宏（单位 mg -> g）。 */
+	{
+		double need = (double)BMA253_MOTION_THRESHOLD_MG / 1000.0;
+
+		if (delta >= need) {
+			printk("[%6lld ms, +%4lld ms] 运动 #%u：Δ|a|=%.3f g "
+			       "(阈值 %.3f) SRC=0x%02X\n",
+			       now, (last_ms != 0) ? (now - last_ms) : 0LL,
+			       (unsigned)n, delta, need, src);
+
+			power_mgr_notify_motion();
+		} else {
+			/* 引脚动了但加速度没变 —— 电气干扰，忽略 */
+			noise_irq_count++;
+			printk("[%6lld ms, +%4lld ms] 伪中断 #%u（忽略，累计 %u）："
+			       "Δ|a|=%.3f g < 阈值 %.3f，a=(%.3f,%.3f,%.3f)\n",
+			       now, (last_ms != 0) ? (now - last_ms) : 0LL,
+			       (unsigned)n, (unsigned)noise_irq_count,
+			       delta, need, s.x_g, s.y_g, s.z_g);
+		}
 	}
 
 	last_ms = now;
@@ -334,10 +393,25 @@ int bma253_motion_example_setup(void)
 		return ret;
 	}
 
-	printk("运动检测中断就绪（INT1 = P0.%02u，阈值 %u mg，%s）\n",
+	/* 【关键】使能引脚中断之前，先把 BMA253 的中断锁存清掉。
+	 *
+	 * 中断配置为锁存（LIR_INT1=1）：一旦触发，INT1 会**一直保持高**，
+	 * 直到读 AOI1_SRC 才释放。如果在 INT1 已经为高的时候才去配置
+	 * 「上升沿触发」，那么后续运动只是让这条线继续维持高电平，
+	 * 不会产生新的上升沿 —— 中断就永远不会再进来。
+	 *
+	 * 这里读一次 AOI1_SRC 清锁存，让 INT1 回到低电平，
+	 * 这样下一次运动才会产生真正的 低→高 跳变。 */
+	{
+		uint8_t src = 0U;
+
+		(void)bma253_motion_read_src(&bma253, &src);
+	}
+
+	printk("运动检测中断就绪（INT1 = P0.%02u，阈值 %u mg，当前电平=%d）\n",
 	       (unsigned)bma253_int1.pin,
 	       (unsigned)BMA253_MOTION_THRESHOLD_MG,
-	       gpio_pin_get_dt(&bma253_int1) ? "当前已触发" : "当前未触发");
+	       gpio_pin_get_dt(&bma253_int1));
 
 	/* 配置都好了，最后才打开引脚中断，避免配置过程中被误触发 */
 	ret = gpio_pin_interrupt_configure_dt(&bma253_int1,
@@ -346,6 +420,11 @@ int bma253_motion_example_setup(void)
 		printk("INT1 中断配置失败：%d\n", ret);
 		return ret;
 	}
+
+	/* 使能后再读一次电平，确认清锁存是否成功 */
+	k_msleep(2);
+	printk("INT1 中断已使能，当前电平=%d（0=低，可正常触发上升沿）\n",
+	       gpio_pin_get_dt(&bma253_int1));
 
 	return 0;
 }

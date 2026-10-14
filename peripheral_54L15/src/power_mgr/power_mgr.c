@@ -1,0 +1,541 @@
+/*
+ * 低功耗状态机实现（见 power_mgr.h 的说明）
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ */
+
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/regulator.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/mfd/npm13xx.h>
+#include <zephyr/sys/printk.h>
+
+#include "power_mgr.h"
+#include "dw3000_node.h"
+#include "dw3000_hw.h"
+
+/*
+ * nRF54L15 核内复位原因寄存器 RESETREAS。
+ *
+ * 打印这个非常重要：实测发现进 ship mode 时 **BUCK1/BUCK2 并没有断电**，
+ * 但 MCU 却重启了 —— 说明不是 "ship mode 退出" 造成的关机再开机，
+ * 而是 PMIC/别的东西复位了 MCU。RESETREAS 能直接给出复位源：
+ *   bit8  OFF       从 System OFF 唤醒
+ *   bit5  CTRLAPPIN 引脚复位（需读 PIN 字段看是哪个脚）
+ *   bit6  SREQ      软件复位请求
+ *   bit0  RESETPIN  nRESET 引脚
+ *
+ * 安全别名基址 0x5010E000，RESETREAS 偏移 0x600（MDK: NRF_RESET_S_BASE）。
+ */
+#define NRF54L_RESETREAS   (*(volatile uint32_t *)0x5010E600UL)
+
+static void print_cpu_reset_reason(void)
+{
+	uint32_t r = NRF54L_RESETREAS;
+	uint32_t pin = (r >> 16) & 0x1FU;
+
+	printk("power_mgr: 核内复位原因 RESETREAS(0x%08X)%s%s%s%s%s%s%s%s%s%s\n",
+	       (unsigned)r,
+	       (r & BIT(0)) ? " RESETPIN" : "",
+	       (r & BIT(1)) ? " DOG0" : "",
+	       (r & BIT(3)) ? " CTRLAPSOFT" : "",
+	       (r & BIT(4)) ? " CTRLAPHARD" : "",
+	       (r & BIT(5)) ? " CTRLAPPIN" : "",
+	       (r & BIT(6)) ? " SREQ" : "",
+	       (r & BIT(7)) ? " LOCKUP" : "",
+	       (r & BIT(8)) ? " OFF(从SystemOFF唤醒)" : "",
+	       (r & BIT(11)) ? " GRTC" : "",
+	       (r == 0U) ? " 无记录(POR)" : "");
+
+	if (r & BIT(5)) {
+		printk("power_mgr:   CTRLAPPIN 复位引脚号 = P%d.%02u\n",
+		       (int)(pin / 32U), (unsigned)(pin % 32U));
+	}
+}
+
+/* PMIC 设备（overlay 里的 npm1300_ek_pmic） */
+#define PMIC_NODE   DT_NODELABEL(npm1300_ek_pmic)
+
+/* BUCK1 = MCU 供电。BUCK2 保持常开，原因见下方说明。 */
+#define BUCK1_NODE  DT_NODELABEL(buck1)
+#define BUCK2_NODE  DT_NODELABEL(buck2)
+
+/*
+ * 掉电检测：nPM1300 的 SCRATCH0/SCRATCH1（ERRLOG 实例 offset 0x1/0x2）。
+ * 手册 7.8.1.2/7.8.1.3 原文："scratch register, only cleared by POR"。
+ *
+ * 只有**真正的 POR（掉电重启）**才会把它们清零；看门狗/软件复位/
+ * ship 退出等都不会。所以：
+ *   进 ship 前写入魔数 -> 重启后读回
+ *   值还在 == 电源从未断过（不是 POR，是普通复位）
+ *   值丢了 == 真的掉电了
+ * 这比用示波器看 BUCK 更可靠，不受时基/触发设置影响。
+ */
+#define NPM13XX_ERRLOG_SCRATCH0   0x01U
+#define POWER_MGR_SCRATCH_MAGIC   0x5AU
+
+/*
+ * DW3000 的 PD（Power Down）引脚 —— 这才是控制 UWB 低功耗的正确手段。
+ *
+ * 【为什么不关 BUCK2】
+ * 实测发现关掉 BUCK2 之后 nPM1300 在 I2C22 上就再也读不到了
+ * （ship 命令写入返回 -116 ETIMEDOUT），说明 BUCK2 同时给 I2C22 的
+ * 上拉/电平转换供电。一旦断掉 BUCK2：
+ *   1) PMIC 失联，连"进 ship mode 关总电源"都做不到；
+ *   2) 整个低功耗逻辑自相矛盾。
+ * 而 PD 引脚是 DW3000 原生的掉电控制，效果一样（µA 级），
+ * 且不影响 PMIC 通信。
+ *
+ * overlay 里 dw3000_pd = <&gpio2 0 GPIO_ACTIVE_HIGH>，
+ * 所以逻辑 1 = 掉电，逻辑 0 = 正常工作。
+ */
+#define DW3000_PD_NODE  DT_NODELABEL(dw3000_pd)
+
+/* nPM1300 ship 寄存器（驱动内部定义，这里按同样地址使用） */
+#define NPM13XX_SHIP_BASE        0x0BU
+#define NPM13XX_SHIP_OFFSET_SHIP 0x02U
+
+/* nPM1300 VBUS 实例：STATUS 寄存器 bit0 = VBUS PRESENT */
+#define NPM13XX_VBUS_BASE        0x02U
+#define NPM13XX_VBUS_OFFSET_STAT 0x07U
+
+/* nPM1300 SHIP 实例：SHPHLDSTATUS bit0 = SHPHLD 引脚电平（0=低 1=高） */
+#define NPM13XX_SHIP_OFFSET_SHPHLDSTATUS 0x05U
+
+/* nPM1300 ERRLOG 实例：RSTCAUSE = 复位原因（手册 7.8.1.4）
+ * 位映射 A(Bit7) .. H(Bit0)：
+ *   B7 SHIPMODEEXIT      由 ship mode 退出引起（正常唤醒）
+ *   B6 BOOTMONITORTIMEOUT
+ *   B5 WATCHDOGTIMEOUT
+ *   B4 LONGPRESSTIMEOUT  SHPHLD 长按复位
+ *   B3 THERMALSHUTDOWN
+ *   B2 VSYSLOW
+ *   B1/B0 软件复位等
+ * 该寄存器只在 POR 或 TASKCLRERRLOG 时清除，所以启动时读一次即可。 */
+#define NPM13XX_ERRLOG_BASE       0x0EU
+#define NPM13XX_ERRLOG_RSTCAUSE   0x03U
+
+static const struct device *const pmic = DEVICE_DT_GET(PMIC_NODE);
+static const struct device *const buck1 = DEVICE_DT_GET(BUCK1_NODE);
+static const struct device *const buck2 = DEVICE_DT_GET(BUCK2_NODE);
+static const struct gpio_dt_spec dw3000_pd = GPIO_DT_SPEC_GET(DW3000_PD_NODE, gpios);
+
+/*
+ * 【关键】ship mode 必须调用在 `regulators` 容器设备上，不是 pmic@6b！
+ *
+ * regulator_npm13xx.c 的定义（L815-817）：
+ *     DEVICE_DT_INST_DEFINE(n, ..., &parent_api);
+ * 这个 parent_api（含 ship_mode）挂在
+ *     compatible = "nordic,npm1300-regulator"
+ * 的 `regulators` 容器节点上。
+ *
+ * 而 PMIC 本身的定义（mfd_npm13xx.c）最后那个参数是 NULL：
+ *     DEVICE_DT_INST_DEFINE(n, mfd_npm13xx_init, ..., NULL);
+ *     ↑ api == NULL
+ *
+ * 所以 regulator_parent_ship_mode(pmic) 会执行：
+ *     api = (regulator_parent_driver_api *)pmic->api;   // api = NULL
+ *     if (api->ship_mode == NULL)                       // 解引用 NULL -> 硬故障！
+ *
+ * 之前的现象正是这个：函数内崩溃 -> 检查点B 没打印 ->
+ * Zephyr 致命错误 -> sys_reboot -> RESETREAS=0x40(SREQ)，
+ * 而 PMIC 的 RSTCAUSE=0x00（它从没收到 ship 命令）。
+ *
+ * `regulators` 节点没有 label，所以用 buck1 的父设备取。
+ */
+#define REGULATORS_NODE  DT_PARENT(DT_NODELABEL(buck1))
+
+static const struct device *const regulators_dev = DEVICE_DT_GET(REGULATORS_NODE);
+
+static bool uwb_powered;           /* UWB 是否处于工作状态（PD 已释放） */
+static bool uwb_inited;            /* DW3000 是否已完成初始化 */
+static int64_t last_motion_ms;
+static uint32_t motion_count;
+
+/* 10s 活动窗口：延时工作队列。
+ * 有运动就 reschedule 成 10s 后；连续 10s 无运动则超时处理运行。 */
+static struct k_work_delayable window_work;
+
+/* ------------------------- 内部工具 ------------------------- */
+
+/**
+ * 打印并解读 nPM1300 的复位原因（RSTCAUSE）。
+ *
+ * 用来判断"上次关机后为什么又启动了"：
+ *   SHIPMODEEXIT=1    -> 正常从 ship mode 唤醒（按键或 VBUS）
+ *   LONGPRESSTIMEOUT=1-> SHPHLD 长按复位
+ *   两者都为 0 且看到本次是冷启动 -> 可能是掉电/POR
+ */
+static void print_reset_cause(void)
+{
+	uint8_t c = 0U;
+	int ret;
+
+	ret = mfd_npm13xx_reg_read(pmic, NPM13XX_ERRLOG_BASE,
+				   NPM13XX_ERRLOG_RSTCAUSE, &c);
+	if (ret < 0) {
+		printk("power_mgr: 读 RSTCAUSE 失败 %d\n", ret);
+		return;
+	}
+
+	printk("power_mgr: 复位原因 RSTCAUSE(0x%02X)%s%s%s%s%s%s%s\n",
+	       c,
+	       (c & BIT(7)) ? " SHIPMODEEXIT(从ship唤醒)" : "",
+	       (c & BIT(6)) ? " BOOTMONITOR" : "",
+	       (c & BIT(5)) ? " WATCHDOG" : "",
+	       (c & BIT(4)) ? " LONGPRESS(长按SHPHLD)" : "",
+	       (c & BIT(3)) ? " THERMAL" : "",
+	       (c & BIT(2)) ? " VSYSLOW" : "",
+	       (c == 0U) ? " POR/首次上电(无记录)" : "");
+}
+
+static void uwb_power_off(void);
+static int uwb_power_on(void);
+
+/**
+ * 10s 活动窗口超时处理
+ *
+ * 用 k_work_delayable 而不是 k_timer 的好处：这个回调在**工作队列线程**
+ * 上下文执行，可以直接读寄存器 / 操作 GPIO / 走 I2C。
+ * 而 k_timer 的 expiry 回调在系统时钟中断里跑，做 I2C 会触发
+ * 内核断言崩溃（sem.c:136 "Context switching while holding lock"），
+ * 还得再套一层 k_work 转发。
+ */
+static void window_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (uwb_powered) {
+		printk("power_mgr: %u ms 活动窗口到期，UWB 进入低功耗\n",
+		       (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+		uwb_power_off();
+	}
+}
+
+/** 重启（推迟）活动窗口：有运动时调用 */
+static void window_restart(void)
+{
+	(void)k_work_reschedule(&window_work,
+				K_MSEC(POWER_MGR_ACTIVE_WINDOW_MS));
+}
+
+/**
+ * 唤醒 UWB。
+ * @return 0 成功；负值失败（失败时不会把 uwb_powered 置真，
+ *         避免主循环对未上电/未初始化的 DW3000 发 SPI 事务）
+ */
+static int uwb_power_on(void)
+{
+	int ret;
+
+	if (uwb_powered) {
+		return 0;
+	}
+
+	/* 释放 PD（逻辑 0 = 正常工作） */
+	ret = gpio_pin_set_dt(&dw3000_pd, 0);
+	if (ret < 0) {
+		printk("power_mgr: 释放 PD 失败 %d，UWB 未唤醒\n", ret);
+		return ret;
+	}
+	k_msleep(5);
+
+	/* 复位 + 唤醒 + 初始化 */
+	dw3000_hw_reset();
+	k_msleep(5);
+	dw3000_hw_wakeup();
+
+	if (!uwb_inited) {
+		ret = dw3000_hw_init_interrupt();
+		if (ret < 0) {
+			printk("power_mgr: DW3000 中断初始化失败 %d\n", ret);
+			return ret;
+		}
+		dw3000_hw_node_init();
+		dw3000_node_run();
+		uwb_inited = true;
+	}
+
+	uwb_powered = true;
+	printk("power_mgr: UWB 已唤醒并就绪\n");
+	return 0;
+}
+
+static void uwb_power_off(void)
+{
+	if (!uwb_powered) {
+		return;
+	}
+
+	/* 先让 DW3000 干净地下电（关中断、反初始化 SPI） */
+	dw3000_hw_interrupt_disable();
+	dw3000_hw_fini();
+	k_msleep(2);
+
+	/* 拉高 PD 让 DW3000 进入深睡眠（µA 级）。
+	 * BUCK2 保持供电 —— 它同时给 I2C22 上拉供电，断了 PMIC 会失联。 */
+	(void)gpio_pin_set_dt(&dw3000_pd, 1);
+	uwb_powered = false;
+
+	printk("power_mgr: UWB 已进入低功耗（PD 拉高）\n");
+}
+
+/**
+ * 进入深度休眠：关闭 UWB 供电并让 nPM1300 进入 ship mode。
+ *
+ * 【重要】这里**绝对不能**用 irq_lock()！
+ * MFD/regulator 驱动写寄存器内部要等 I2C 信号量，需要上下文切换；
+ * 持锁时切换会触发内核断言崩溃（kswap.h:217
+ * "Context switching while holding lock!"）。
+ *
+ * ship mode 生效后 BUCK1 断电，MCU 立即停止，所以正常情况下不返回。
+ * 若仍在运行，说明 PMIC 没有执行 ship 命令。
+ */
+static void enter_deep_sleep(void)
+{
+	int ret;
+	int64_t deadline;
+
+	printk("power_mgr: %u s 无运动，进入深度休眠（ship mode）\n",
+	       (unsigned)(POWER_MGR_DEEP_SLEEP_MS / 1000U));
+	printk("power_mgr: 按 SHPHLD 按键可唤醒（冷启动）\n");
+
+	/* 1) UWB 先干净下电 */
+	uwb_power_off();
+
+	/* 2) 【手册 7.4 节前置条件】检查 VBUS 是否已断开并放电。
+	 *
+	 * 手册原文："When VBUS is not present, the device enters Ship mode
+	 * immediately. The host software must wait until EVENTSVBUSIN0SET to
+	 * ensure VBUS is disconnected and discharged before writing to the
+	 * register."
+	 *
+	 * 也就是说：**VBUS 存在时 ship mode 不会立即进入**。
+	 * 调试时插着 USB 取串口日志，VBUS 就一定在。
+	 * 这里显式读一次并提示，避免"写了命令却没关机"看起来像 bug。 */
+	{
+		uint8_t vst = 0U;
+		uint8_t shp = 0U;
+
+		if (mfd_npm13xx_reg_read(pmic, NPM13XX_VBUS_BASE,
+					NPM13XX_VBUS_OFFSET_STAT, &vst) == 0) {
+			bool present = (vst & 0x01U) != 0U;   /* STATUS_PRESENT */
+
+			printk("power_mgr: VBUS 状态(0x%02X) = %s\n", vst,
+			       present ? "已接入" : "未接入");
+			if (present) {
+				printk("!! power_mgr: VBUS 存在，按手册 ship mode 不会立即进入。\n"
+				       "!! 请拔掉 USB（断开 VBUS）后再试。\n");
+			}
+		}
+
+		/* SHPHLD 引脚电平：bit0 = 1 表示高电平（按键未按）。
+		 * 若这里读到 0，说明按键被按住或引脚被拉低，
+		 * 那么进 ship mode 后会在 96ms 内立刻退出。 */
+		if (mfd_npm13xx_reg_read(pmic, NPM13XX_SHIP_BASE,
+					 NPM13XX_SHIP_OFFSET_SHPHLDSTATUS,
+					 &shp) == 0) {
+			printk("power_mgr: SHPHLD 引脚状态(0x%02X) = %s\n", shp,
+			       (shp & 0x01U) ? "高（按键未按，正常）"
+					     : "低!!（按键被按住或引脚被拉低）");
+		}
+	}
+
+	/* 3) 让串口日志先发出去 */
+	k_msleep(50);
+
+	/* 3.5) 写入 SCRATCH 魔数：它是"仅 POR 清零"的寄存器，
+	 *      下次启动读回来就能判断这次 ship 有没有真的掉电。 */
+	if (mfd_npm13xx_reg_write(pmic, NPM13XX_ERRLOG_BASE,
+				  NPM13XX_ERRLOG_SCRATCH0,
+				  POWER_MGR_SCRATCH_MAGIC) == 0) {
+		printk("power_mgr: 已写 SCRATCH0=0x%02X（用于判断是否真掉电）\n",
+		       (unsigned)POWER_MGR_SCRATCH_MAGIC);
+	}
+
+	printk("power_mgr: [检查点A] 即将调用 regulator_parent_ship_mode(%s)\n",
+	       regulators_dev->name);
+
+	/* 4) 进入 ship mode。
+	 *
+	 * 【设备选择很关键】必须传 `regulators` 容器设备（buck1 的父节点），
+	 * 不能传 pmic@6b —— 后者的 dev->api 是 NULL，会解引用空指针崩溃。
+	 *
+	 * 优先用官方 API（内部就是写 SHIP_BASE(0x0B) + TASKENTERSHIPMODE(0x02)）；
+	 * 若 API 不可用（-ENOSYS）则直接写寄存器作为回退。
+	 * 注意：不能持锁调用（内部要走 I2C，需要上下文切换）。 */
+	if (!device_is_ready(regulators_dev)) {
+		printk("power_mgr: regulators 设备未就绪，直接写寄存器\n");
+		ret = -ENOSYS;
+	} else {
+		ret = regulator_parent_ship_mode(regulators_dev);
+	}
+
+	printk("power_mgr: [检查点B] ship_mode 返回 %d\n", ret);
+
+	if (ret == -ENOSYS) {
+		printk("power_mgr: 无 ship_mode API，改用直接写寄存器\n");
+		ret = mfd_npm13xx_reg_write(pmic, NPM13XX_SHIP_BASE,
+					    NPM13XX_SHIP_OFFSET_SHIP, 1U);
+	}
+	if (ret < 0) {
+		printk("power_mgr: ship 命令失败 %d\n", ret);
+	}
+
+	printk("power_mgr: [检查点C] 进入 5 秒等待循环\n");
+
+	/* 5) 最多等 5 秒确认是否真的断电。
+	 *    正常情况下跑不到这里：BUCK1 已断，MCU 停机。
+	 *
+	 *    加心跳打印：如果"进 ship 后立刻重启"，心跳的次数能精确
+	 *    告诉我们 MCU 在 ship 命令之后还活了多久。
+	 *      - 心跳没出现         -> 在 regulator_parent_ship_mode() 里就复位了
+	 *      - 心跳 1~4 次        -> 在 5 秒等待中间被复位
+	 *      - 心跳 50 次 + 警告  -> ship 完全没生效 */
+	{
+		int beat = 0;
+
+		deadline = k_uptime_get() + 5000;
+		while (k_uptime_get() < deadline) {
+			k_msleep(100);
+			beat++;
+			if ((beat % 5) == 0) {
+				printk("power_mgr: [心跳 %d] ship 命令后已过 %d ms，仍在运行\n",
+				       beat, beat * 100);
+			}
+		}
+	}
+
+	printk("!! power_mgr: ship mode 未生效，仍在运行。\n");
+	printk("!! 按手册 7.4 节逐项确认：\n");
+	printk("!!   1) VBUS 是否已断开（见上面的 VBUS 状态打印）\n");
+	printk("!!   2) SHPHLDCONFIG/TASKSHPHLDCFGSTROBE 是否已配置\n");
+	printk("!!   3) SHPHLD 按键是否接好（退出 ship 要靠它拉低）\n");
+}
+
+/* ------------------------- 对外接口 ------------------------- */
+
+int power_mgr_init(void)
+{
+	int ret;
+
+	if (!device_is_ready(pmic)) {
+		printk("power_mgr: PMIC 未就绪（检查 I2C22 与 BUCK2 是否给上拉供电）\n");
+		return -ENODEV;
+	}
+	if (!device_is_ready(buck1)) {
+		printk("power_mgr: BUCK1 regulator 未就绪\n");
+		return -ENODEV;
+	}
+	if (!device_is_ready(buck2)) {
+		printk("power_mgr: BUCK2 regulator 未就绪\n");
+		return -ENODEV;
+	}
+	if (!gpio_is_ready_dt(&dw3000_pd)) {
+		printk("power_mgr: DW3000 PD 引脚未就绪\n");
+		return -ENODEV;
+	}
+
+	last_motion_ms = k_uptime_get();
+
+	/* 初始化 10s 活动窗口（延时工作队列）。
+	 * 它在工作队列线程执行，可以直接做 I2C，不需要额外的转发层。 */
+	k_work_init_delayable(&window_work, window_work_handler);
+
+	/* 配置 PD 引脚为输出，并立即拉高让 UWB 进入低功耗待机。
+	 * （BUCK2 保持供电，它还给 I2C22 上拉供电。） */
+	ret = gpio_pin_configure_dt(&dw3000_pd, GPIO_OUTPUT_ACTIVE);
+	if (ret < 0) {
+		printk("power_mgr: PD 引脚配置失败 %d\n", ret);
+		return ret;
+	}
+	(void)gpio_pin_set_dt(&dw3000_pd, 1);
+	uwb_powered = false;
+
+	printk("power_mgr: 初始 BUCK1(MCU)=%s BUCK2(UWB供电)=%s，UWB 已置待机\n",
+	       regulator_is_enabled(buck1) ? "开" : "关",
+	       regulator_is_enabled(buck2) ? "开" : "关");
+
+	/* 打印本次启动的复位原因，两边都看：
+	 *   - PMIC 的 RSTCAUSE  -> 是否由 ship mode 退出引起
+	 *   - MCU 的 RESETREAS  -> 核内复位源（引脚/看门狗/软件/SystemOFF）
+	 *   - SCRATCH0 魔数     -> 电源到底有没有真的断过
+	 * 三者结合能定位到底是谁把系统重启的。 */
+	print_reset_cause();
+	print_cpu_reset_reason();
+
+	{
+		uint8_t scratch = 0U;
+
+		if (mfd_npm13xx_reg_read(pmic, NPM13XX_ERRLOG_BASE,
+					 NPM13XX_ERRLOG_SCRATCH0,
+					 &scratch) == 0) {
+			if (scratch == POWER_MGR_SCRATCH_MAGIC) {
+				printk("power_mgr: SCRATCH0=0x%02X 魔数还在 -> "
+				       "【没有发生 POR】电源从未断过，是普通复位\n",
+				       scratch);
+			} else {
+				printk("power_mgr: SCRATCH0=0x%02X 魔数已丢 -> "
+				       "【发生了 POR】确实掉过电\n", scratch);
+			}
+			/* 清掉，避免下次误判 */
+			(void)mfd_npm13xx_reg_write(pmic, NPM13XX_ERRLOG_BASE,
+						    NPM13XX_ERRLOG_SCRATCH0, 0U);
+		}
+	}
+
+	return 0;
+}
+
+int power_mgr_enable_uwb(void)
+{
+	uwb_power_on();
+	return uwb_powered ? 0 : -EIO;
+}
+
+void power_mgr_notify_motion(void)
+{
+	motion_count++;
+	last_motion_ms = k_uptime_get();
+
+	if (!uwb_powered) {
+		printk("power_mgr: 运动触发（第 %u 次），打开 %u ms 活动窗口\n",
+		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+		(void)uwb_power_on();
+	} else {
+		printk("power_mgr: 运动触发（第 %u 次），窗口刷新为 %u ms\n",
+		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+	}
+
+	/* 把 10s 窗口往后推。
+	 * 每来一次运动就 reschedule 一次，天然实现"10s 内继续触发则刷新窗口"：
+	 *   - 窗口内不断有运动 -> 一直往后推，UWB 持续发送
+	 *   - 连续 10s 无运动   -> 延时工作到期，回调里关断 UWB
+	 * 放在 uwb_power_on() 之后，这样窗口从"UWB 真正就绪"开始计时，
+	 * 不会被 DW3000 初始化耗时（几十 ms）吃掉。 */
+	window_restart();
+}
+
+void power_mgr_sleep_check(void)
+{
+	int64_t now = k_uptime_get();
+
+	/* 10s 活动窗口已由 window_work 负责，这里只判断深度休眠。
+	 * 30s 无运动 -> 进 ship mode（关机，正常情况下不返回）。 */
+	if ((now - last_motion_ms) >= (int64_t)POWER_MGR_DEEP_SLEEP_MS) {
+		/* 先取消未到期的窗口延时工作，避免关机过程中它又触发关 UWB */
+		(void)k_work_cancel_delayable(&window_work);
+		enter_deep_sleep();
+	}
+}
+
+bool power_mgr_uwb_is_active(void)
+{
+	return uwb_powered;
+}
+
+uint32_t power_mgr_get_motion_count(void)
+{
+	return motion_count;
+}

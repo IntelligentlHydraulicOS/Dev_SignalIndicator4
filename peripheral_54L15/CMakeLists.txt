@@ -23,6 +23,7 @@ target_include_directories(app PRIVATE src/dwt/shared_data)
 target_include_directories(app PRIVATE src/dwt/platform)
 target_include_directories(app PRIVATE src/bms_driver)
 target_include_directories(app PRIVATE src/imu_driver)
+target_include_directories(app PRIVATE src/power_mgr)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
@@ -52,6 +53,7 @@ target_sources(app PRIVATE
   src/imu_driver/bma253_i2c_driver.c
   src/imu_driver/bma253_example.c
   src/buzzer/buzzer.c
+  src/power_mgr/power_mgr.c
 )
 
 # NORDIC SDK APP END

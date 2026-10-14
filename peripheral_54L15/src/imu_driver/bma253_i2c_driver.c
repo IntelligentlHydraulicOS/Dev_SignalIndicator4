@@ -658,9 +658,15 @@ int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
 	       (unsigned int)mg_per_lsb, (unsigned int)dev->range,
 	       (unsigned int)duration);
 
-	/* 回读关键寄存器：万一中断不出，这几行能直接定位问题 */
+	/* 回读关键寄存器：万一中断不出，这几行能直接定位问题。
+	 *
+	 * 【注意】这里**故意不读 AOI1_SRC(0x31)**：
+	 *   1) 它是「读即清除」寄存器，回读会把已有的中断锁存吃掉；
+	 *   2) 这颗克隆件的 IA(bit7) 位不可靠（真实运动时也可能是 0），
+	 *      用它判断"静止时是否已触发"结论必然是错的。
+	 * 需要判断中断源时，应在中断处理流程里读，不要在这里回读。 */
 	{
-		uint8_t c2 = 0U, c3 = 0U, c4 = 0U, c5 = 0U, ths = 0U, dur = 0U, src = 0U;
+		uint8_t c2 = 0U, c3 = 0U, c4 = 0U, c5 = 0U, ths = 0U, dur = 0U;
 
 		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG2, &c2);
 		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG3, &c3);
@@ -668,7 +674,6 @@ int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
 		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG5, &c5);
 		(void)bma253_reg_read(dev, BMA253_REG_AOI1_THS, &ths);
 		(void)bma253_reg_read(dev, BMA253_REG_AOI1_DUR, &dur);
-		(void)bma253_reg_read(dev, BMA253_REG_AOI1_SRC, &src);
 
 		printk("  中断配置回读：\n");
 		printk("    CTRL_REG2(0x21)=0x%02X  HPIS1=%u(须为1) FDS=%u(须为0)\n",
@@ -684,9 +689,6 @@ int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
 		       (unsigned)(c5 & BMA253_CTRL5_INT_PP_OD ? 1 : 0));
 		printk("    AOI1_THS(0x32)=%u  AOI1_DUR(0x33)=%u\n",
 		       (unsigned)(ths & 0x7FU), (unsigned)(dur & 0x7FU));
-		printk("    AOI1_SRC(0x31)=0x%02X %s\n", src,
-		       (src & BMA253_AOI_SRC_IA) ? "(静止时就已触发！)"
-						 : "(静止时未触发，正常)");
 	}
 
 	LOG_INF("运动检测：阈值 %u mg -> code %u（%u mg/LSB），duration %u",
