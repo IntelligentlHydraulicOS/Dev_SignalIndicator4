@@ -12,6 +12,24 @@ int bma253_example_init(void);
 void bma253_example_poll(void);
 
 /**
+ * @brief 配置 BMA253 运动检测中断（INT1 -> P0.00）
+ *
+ * 阈值取自宏 BMA253_MOTION_THRESHOLD_MG（定义在 bma253_i2c_driver.h，
+ * 单位 mg）。需要调整灵敏度时改那个宏即可，不用动函数调用。
+ *
+ * @return 0 成功
+ */
+int bma253_motion_example_setup(void);
+
+/**
+ * @brief 查询已发生的运动事件次数
+ *
+ * 运动事件在 GPIO 中断里只提交 work，实际的 I2C 读取与打印在
+ * 工作队列线程完成（中断里不能调 I2C / printk）。
+ */
+uint32_t bma253_motion_get_count(void);
+
+/**
  * @brief 转储 BMA253 关键寄存器（诊断用）
  *
  * 用来确认量程/ODR/电源模式等配置是否真的写进了芯片。

@@ -73,6 +73,33 @@
 		gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
 		status = "okay";
 	};
+
+	/*
+	 * BMA253 运动检测中断 INT1 -> nRF54L15 的 P0.00
+	 *
+	 * BMA253 侧已配置为「高有效 + 推挽输出」
+	 * (CTRL_REG5 的 H_LACTIVE=0、INT_PP_OD=0)，所以这里用
+	 * GPIO_ACTIVE_HIGH。
+	 *
+	 * 注意：Zephyr 的 GPIO 中断不支持内部下拉，所以引脚不能悬空。
+	 * BMA253 是推挽输出会主动驱动高/低，正常连接下不悬空；
+	 * 如果误触发严重，可在 P0.00 上加一个外部下拉（10k 到 GND）。
+	 *
+	 * ⚠ P0.00 的 RESET 复用：
+	 *   nRF54L15 的 nRESET 默认就是 P0.00。Zephyr 里它由 UICR 的
+	 *   gpio-as-nreset 属性决定（整个 NCS 里没有任何 nRF54L 板子设置
+	 *   它，所以默认不启用，P0.00 可作普通 GPIO）。
+	 *   若发现中断不响应、或一给低电平就复位，请检查 UICR：
+	 *       nrfjprog --memrd 0x00FFD000
+	 *   确认没有被配置成复位引脚；必要时整片擦除（--eraseall）后重烧，
+	 *   或显式声明：
+	 *       &uicr { gpio-as-nreset; };   // 只在确实需要 nRESET 时
+	 */
+	bma253_int1: bma253-int1 {
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 };
 
 &pinctrl{

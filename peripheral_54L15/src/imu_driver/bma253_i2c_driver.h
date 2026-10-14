@@ -72,10 +72,16 @@
 
 #define BMA253_REG_FIFO_CTRL    0x2EU
 #define BMA253_REG_FIFO_SRC     0x2FU
-#define BMA253_REG_INT1_CFG     0x30U   /* AOI1_CFG */
-#define BMA253_REG_INT1_SRC     0x31U
-#define BMA253_REG_INT1_THS     0x32U
-#define BMA253_REG_INT1_DUR     0x33U
+#define BMA253_REG_INT1_CFG     0x30U   /* AOI1_CFG：运动检测配置 */
+#define BMA253_REG_INT1_SRC     0x31U   /* AOI1_SRC：中断源状态 */
+#define BMA253_REG_INT1_THS     0x32U   /* AOI1_THS：阈值 */
+#define BMA253_REG_INT1_DUR     0x33U   /* AOI1_DURATION：持续时间 */
+
+/* 语义化别名（推荐用这组名字，AOI 才是手册里的正式叫法） */
+#define BMA253_REG_AOI1_CFG     BMA253_REG_INT1_CFG
+#define BMA253_REG_AOI1_SRC     BMA253_REG_INT1_SRC
+#define BMA253_REG_AOI1_THS     BMA253_REG_INT1_THS
+#define BMA253_REG_AOI1_DUR     BMA253_REG_INT1_DUR
 #define BMA253_REG_INT2_CFG     0x34U   /* AOI2_CFG */
 #define BMA253_REG_INT2_SRC     0x35U
 #define BMA253_REG_INT2_THS     0x36U
@@ -166,6 +172,100 @@
 
 /* 0x1F CTRL_REG0 位 */
 #define BMA253_CTRL0_HR          BIT(7)   /* 1: 高性能/增强模式 */
+
+/* ============================ 中断相关寄存器 ============================
+ * 地址来自手册第 11 节寄存器表；位定义来自第 12 节（该节只给位含义、
+ * 不给地址，地址是按章节顺序对应到 CTRL_REG0..6 = 0x1F..0x25 的）。
+ */
+
+/* 0x22 CTRL_REG3 —— INT1 中断使能（每位置 1 表示"该中断路由到 INT1"） */
+#define BMA253_CTRL3_I1_CLICK    BIT(7)
+#define BMA253_CTRL3_I1_AOI1     BIT(6)   /* 运动检测走这里 */
+#define BMA253_CTRL3_I1_AOI2     BIT(5)
+#define BMA253_CTRL3_I1_DRDY     BIT(4)
+#define BMA253_CTRL3_I1_WTM      BIT(2)
+#define BMA253_CTRL3_I1_OVERRUN  BIT(1)
+#define BMA253_CTRL3_FIFO_MODE   BIT(0)
+
+/* 0x23 CTRL_REG4 —— 中断全局配置 */
+#define BMA253_CTRL4_BOOT        BIT(7)
+#define BMA253_CTRL4_FIFO_EN     BIT(6)
+#define BMA253_CTRL4_AOI_EN      BIT(5)   /* 【注意】0 = 使能 AOI，1 = 禁止！ */
+#define BMA253_CTRL4_LIR_INT1    BIT(3)   /* 1: 锁存中断（读中断寄存器清除） */
+#define BMA253_CTRL4_D4D_INT1    BIT(2)   /* 1: INT1 上用 4D，需同时置 6D */
+#define BMA253_CTRL4_LIR_INT2    BIT(1)
+#define BMA253_CTRL4_D4D_INT2    BIT(0)
+
+/* 0x24 CTRL_REG5 —— INT2 中断使能 + 引脚电气属性 */
+#define BMA253_CTRL5_I2_CLICK    BIT(7)
+#define BMA253_CTRL5_I2_AOI1     BIT(6)
+#define BMA253_CTRL5_I2_AOI2     BIT(5)
+#define BMA253_CTRL5_I2_BOOT     BIT(4)
+#define BMA253_CTRL5_I2_DRDY     BIT(3)
+#define BMA253_CTRL5_CS_PU_EN0   BIT(2)
+#define BMA253_CTRL5_H_LACTIVE   BIT(1)   /* 0: 高有效；1: 低有效 */
+#define BMA253_CTRL5_INT_PP_OD   BIT(0)   /* 0: 推挽；1: 开漏 */
+
+/* 0x21 CTRL_REG2 —— 高通滤波配置 */
+#define BMA253_CTRL2_HDS         BIT(6)   /* 1: 用 ADC 原始数据 */
+#define BMA253_CTRL2_HPCF2       BIT(5)
+#define BMA253_CTRL2_HPCF1       BIT(4)
+#define BMA253_CTRL2_FDS         BIT(3)   /* 1: 高通滤波后的数据送数据寄存器/FIFO */
+#define BMA253_CTRL2_HP_RESET    BIT(2)   /* 1: 复位高通滤波器 */
+#define BMA253_CTRL2_HPIS2       BIT(1)   /* AOI2 高通滤波使能 */
+#define BMA253_CTRL2_HPIS1       BIT(0)   /* AOI1 高通滤波使能（运动检测必需！） */
+
+/* 0x30 AOI1_CFG —— 运动检测核心配置 */
+#define BMA253_AOI_CFG_IA        BIT(7)   /* 0 = 或(OR) 模式；1 = 与(AND) 模式 */
+#define BMA253_AOI_CFG_6D        BIT(6)   /* 1 = 打开 6D 方向识别 */
+#define BMA253_AOI_CFG_Z_HIGH    BIT(5)
+#define BMA253_AOI_CFG_Z_LOW     BIT(4)
+#define BMA253_AOI_CFG_Y_HIGH    BIT(3)
+#define BMA253_AOI_CFG_Y_LOW     BIT(2)
+#define BMA253_AOI_CFG_X_HIGH    BIT(1)
+#define BMA253_AOI_CFG_X_LOW     BIT(0)
+
+/* 三轴、双向全部使能（0x3F）：任一轴超阈值（高）或低于阈值（低）都触发。
+ * 配合 IA=0/6D=0 就是"或事件"——最常用的运动检测。 */
+#define BMA253_AOI_CFG_ALL_AXES  (BMA253_AOI_CFG_Z_HIGH | BMA253_AOI_CFG_Z_LOW | \
+				  BMA253_AOI_CFG_Y_HIGH | BMA253_AOI_CFG_Y_LOW | \
+				  BMA253_AOI_CFG_X_HIGH | BMA253_AOI_CFG_X_LOW)
+
+/* AOI1 工作模式（手册 12.16 "中断模式" 表）：
+ *   IA=0 6D=0 : 或中断事件      —— 任一使能轴触发即中断
+ *   IA=0 6D=1 : 6 个方向运动识别 —— 所有使能轴都触发才中断
+ *   IA=1 6D=0 : 与中断事件
+ *   IA=1 6D=1 : 6 个方向位置检测
+ */
+#define BMA253_AOI_MODE_OR        (0U)
+#define BMA253_AOI_MODE_6D_MOVE   (BMA253_AOI_CFG_6D)
+#define BMA253_AOI_MODE_AND       (BMA253_AOI_CFG_IA)
+#define BMA253_AOI_MODE_6D_POS    (BMA253_AOI_CFG_IA | BMA253_AOI_CFG_6D)
+
+/* 0x31 AOI1_SRC —— 中断源状态（只读，判断是哪个轴触发的） */
+#define BMA253_AOI_SRC_IA        BIT(7)   /* 1: 有中断产生 */
+#define BMA253_AOI_SRC_Z_HIGH    BIT(5)
+#define BMA253_AOI_SRC_Z_LOW     BIT(4)
+#define BMA253_AOI_SRC_Y_HIGH    BIT(3)
+#define BMA253_AOI_SRC_Y_LOW     BIT(2)
+#define BMA253_AOI_SRC_X_HIGH    BIT(1)
+#define BMA253_AOI_SRC_X_LOW     BIT(0)
+
+/* ==================== 运动检测阈值（可自行调整）====================
+ *
+ * 阈值与模式已移到独立文件 bma253_motion_config.h，
+ * 平时只改那个文件即可，不用动本驱动。
+ */
+#include "bma253_motion_config.h"
+
+/* 兜底默认值：若配置文件里没定义也能编译 */
+#ifndef BMA253_MOTION_THRESHOLD_MG
+#define BMA253_MOTION_THRESHOLD_MG   100U
+#endif
+
+#ifndef BMA253_MOTION_DURATION
+#define BMA253_MOTION_DURATION       1U
+#endif
 
 /* 0x09 DRDY_STATUS 位 */
 #define BMA253_STATUS_DRDY       BIT(7)   /* 1: 新数据就绪 */
@@ -341,6 +441,42 @@ int bma253_recover_output(struct bma253_data *dev, bma253_odr_t odr);
 
 /** @brief 使能/关闭自测试 */
 int bma253_selftest(struct bma253_data *dev, bool enable);
+
+/**
+ * @brief 配置三轴运动检测中断，并路由到 INT1 引脚
+ *
+ * 用 AOI1（任何/全部方向中断）实现"或事件"运动检测：
+ *   AOI1_CFG = 0x3F  -> 三轴、高/低双向事件全部使能
+ *   模式     = IA=0, 6D=0 -> 任一轴事件即产生中断
+ *
+ * 阈值由宏 BMA253_MOTION_THRESHOLD_MG 给出（单位 mg）。
+ * 驱动按当前量程换算成寄存器 LSB：
+ *   FS=2g  -> 16 mg/LSB
+ *   FS=4g  -> 32 mg/LSB
+ *   FS=8g  -> 64 mg/LSB
+ *   FS=16g -> 128 mg/LSB
+ *
+ * 配置完成后：
+ *   - AOI1 中断已路由到 INT1 引脚（CTRL_REG3 的 I1_AOI1）
+ *   - 中断被锁存（CTRL_REG4 的 LIR_INT1），需读 AOI1_SRC 清除
+ *
+ * @param dev       驱动实例
+ * @param mode      BMA253_AOI_MODE_* 之一（默认用 BMA253_AOI_MODE_OR）
+ * @param threshold_mg 阈值（mg）。传 0 则使用宏 BMA253_MOTION_THRESHOLD_MG
+ * @param duration  需连续满足的采样周期数（防抖），传 0 用宏默认值
+ * @return 0 成功
+ */
+int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
+		       uint32_t threshold_mg, uint8_t duration);
+
+/**
+ * @brief 读取运动检测中断源，判断是哪个轴触发
+ *
+ * @param dev 驱动实例
+ * @param src 输出 AOI1_SRC（0x31）原始值，用 BMA253_AOI_SRC_* 判断
+ * @return 0 成功
+ */
+int bma253_motion_read_src(struct bma253_data *dev, uint8_t *src);
 
 /** @brief 配置 INT1 引脚与中断源（cfg 为 0x30 寄存器值，0 表示不使能中断源） */
 int bma253_config_int1(struct bma253_data *dev, uint8_t cfg,

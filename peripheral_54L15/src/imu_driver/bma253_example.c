@@ -27,6 +27,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 
 #include "bma253_i2c_driver.h"
@@ -71,6 +72,15 @@ int bma253_example_init(void)
 
 	/* 可选：数字低通滤波器，1 / 4 / 8 / 16 阶 */
 	(void)bma253_set_dlpf(&bma253, BMA253_DLPF_4TH);
+
+	/* ---------- 运动检测中断 ----------
+	 * BMA253 INT1 (P0.00) 高有效推挽输出，检测到运动时拉高。
+	 * 阈值用宏 BMA253_MOTION_THRESHOLD_MG（单位 mg），后续自行调整。
+	 * 传 0 表示使用宏里的默认值。 */
+	ret = bma253_motion_example_setup();
+	if (ret < 0) {
+		printk("运动检测初始化失败：%d\n", ret);
+	}
 
 	printk("BMA253 就绪\n");
 
@@ -217,10 +227,136 @@ void bma253_dump_regs(void)
 	printk("------------------------\n");
 }
 
+/* ==================== 运动检测中断（INT1 -> P0.00）==================== */
+
+/* 中断引脚：对应 overlay 里的 bma253_int1 节点（P0.00） */
+#define BMA253_INT1_NODE  DT_NODELABEL(bma253_int1)
+
+static const struct gpio_dt_spec bma253_int1 = GPIO_DT_SPEC_GET(BMA253_INT1_NODE, gpios);
+static struct gpio_callback bma253_int1_cb;
+
+/* 中断里只提交 work，I2C 读放在工作队列线程里做 */
+static volatile uint32_t motion_count;      /* 引脚中断次数 */
+static volatile uint8_t motion_src;
+static struct k_work motion_work;
+
+static void motion_work_handler(struct k_work *work);
+
+static void bma253_int1_handler(const struct device *port,
+				struct gpio_callback *cb, uint32_t pins)
+{
+	ARG_UNUSED(port);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	/* 【重要】中断上下文绝对不能调 I2C！
+	 * I2C 驱动内部用 k_sem_take 带超时等待，而中断里不允许阻塞，
+	 * 否则触发内核断言崩溃（sem.c:136）。
+	 * printk 同理也不能在这里调。
+	 *
+	 * 所以这里只提交一个 work，实际读取放到工作队列线程。 */
+	motion_count++;
+	k_work_submit(&motion_work);
+}
+
+/** @brief 工作队列线程：读 AOI1_SRC 清锁存并打印 */
+static void motion_work_handler(struct k_work *work)
+{
+	static int64_t last_ms;
+	int64_t now = k_uptime_get();
+	uint32_t n = motion_count;
+	uint8_t src = 0U;
+	int ret;
+
+	ARG_UNUSED(work);
+
+	/* 在工作队列线程上下文读（这里可以阻塞、可以 printk）。
+	 * 读 AOI1_SRC 同时会清除锁存的中断，让 INT1 释放，
+	 * 下一次运动才能产生新的上升沿。 */
+	ret = bma253_motion_read_src(&bma253, &src);
+	motion_src = src;
+
+	if (src & BMA253_AOI_SRC_IA) {
+		/* 芯片确实检测到了运动事件 */
+		printk("[%6lld ms, +%4lld ms] 运动 #%u：SRC=0x%02X",
+		       now, (last_ms != 0) ? (now - last_ms) : 0LL,
+		       (unsigned)n, src);
+		if (src & BMA253_AOI_SRC_Z_HIGH) { printk(" Z高"); }
+		if (src & BMA253_AOI_SRC_Y_HIGH) { printk(" Y高"); }
+		if (src & BMA253_AOI_SRC_X_HIGH) { printk(" X高"); }
+		printk("\n");
+	} else {
+		/* 引脚有电平变化但芯片没报事件 —— 电气干扰！
+		 * 常见来源：INT1 走线被 I2C/SPI/UWB 串扰，或引脚悬空。 */
+		printk("[%6lld ms, +%4lld ms] 伪中断 #%u：读回 SRC=0x%02X"
+		       "（芯片未报事件，%s）\n",
+		       now, (last_ms != 0) ? (now - last_ms) : 0LL,
+		       (unsigned)n, src, (ret < 0) ? "I2C 读失败" : "疑似电气干扰");
+	}
+
+	last_ms = now;
+}
+
+int bma253_motion_example_setup(void)
+{
+	int ret;
+
+	if (!gpio_is_ready_dt(&bma253_int1)) {
+		printk("INT1 引脚设备未就绪（检查 overlay 的 bma253_int1 节点）\n");
+		return -ENODEV;
+	}
+
+	/* 初始化事件工作项（I2C 读必须在工作队列线程里做，不能在 ISR 里） */
+	k_work_init(&motion_work, motion_work_handler);
+
+	/* 输入；BMA253 为推挽输出，无需内部上拉/下拉
+	 * （Zephyr 的 GPIO 中断也不支持内部下拉） */
+	ret = gpio_pin_configure_dt(&bma253_int1, GPIO_INPUT);
+	if (ret < 0) {
+		printk("INT1 引脚配置失败：%d\n", ret);
+		return ret;
+	}
+
+	gpio_init_callback(&bma253_int1_cb, bma253_int1_handler,
+			   BIT(bma253_int1.pin));
+	ret = gpio_add_callback(bma253_int1.port, &bma253_int1_cb);
+	if (ret < 0) {
+		printk("INT1 回调注册失败：%d\n", ret);
+		return ret;
+	}
+
+	/* 配置 BMA253 侧：模式/阈值/持续时间全部取自 bma253_motion_config.h */
+	ret = bma253_motion_init(&bma253, BMA253_MOTION_MODE,
+				 BMA253_MOTION_THRESHOLD_MG,
+				 BMA253_MOTION_DURATION);
+	if (ret < 0) {
+		printk("BMA253 运动检测配置失败：%d\n", ret);
+		return ret;
+	}
+
+	printk("运动检测中断就绪（INT1 = P0.%02u，阈值 %u mg，%s）\n",
+	       (unsigned)bma253_int1.pin,
+	       (unsigned)BMA253_MOTION_THRESHOLD_MG,
+	       gpio_pin_get_dt(&bma253_int1) ? "当前已触发" : "当前未触发");
+
+	/* 配置都好了，最后才打开引脚中断，避免配置过程中被误触发 */
+	ret = gpio_pin_interrupt_configure_dt(&bma253_int1,
+					     GPIO_INT_EDGE_TO_ACTIVE);
+	if (ret < 0) {
+		printk("INT1 中断配置失败：%d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 /** @brief 轮询一次并打印三轴数据 */
 void bma253_example_poll(void)
 {
 	struct bma253_sample s;
+
+	/* 运动事件由 motion_work 在工作队列线程里处理并打印，
+	 * 这里不需要再做什么。 */
 
 	if (bma253_read(&bma253, &s) < 0) {
 		return;
@@ -229,11 +365,16 @@ void bma253_example_poll(void)
 	       s.raw_x, s.raw_y, s.raw_z,
 	       s.x_g, s.y_g, s.z_g,
 	       s.x_ms2, s.y_ms2, s.z_ms2);
-#if 0
-	/* 四视图：同时给出 16位/>>3/>>4/>>5 四种解释，用于确定真实数据格式。
-	 * 改变板子姿态时，哪一列表现出"某轴≈±1g、另两轴≈0"，那列就是对的。 */
-	bma253_print_raw_views();
-#endif
+}
+
+/**
+ * @brief 查询已发生的运动事件次数
+ *
+ * 事件本身由工作队列处理，这里是给应用查询用的。
+ */
+uint32_t bma253_motion_get_count(void)
+{
+	return motion_count;
 }
 
 /**

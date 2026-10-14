@@ -507,6 +507,205 @@ int bma253_config_int1(struct bma253_data *dev, uint8_t cfg,
 	return 0;
 }
 
+/* ------------------------- 运动检测中断 ------------------------- */
+
+/*
+ * 阈值灵敏度（手册 12.18 "中断阈值寄存器"）：
+ *   FS=2g  -> 16 mg/LSB
+ *   FS=4g  -> 32 mg/LSB
+ *   FS=8g  -> 64 mg/LSB
+ *   FS=16g -> 128 mg/LSB
+ * THS 只有低 7 位有效，所以最大 127 LSB。
+ */
+static const uint16_t motion_mg_per_lsb[4] = { 16U, 32U, 64U, 128U };
+
+int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
+		       uint32_t threshold_mg, uint8_t duration)
+{
+	const uint16_t *lut = motion_mg_per_lsb;
+	uint32_t mg_per_lsb;
+	uint32_t code;
+	uint8_t cfg;
+	int ret;
+
+	if (dev == NULL) {
+		return -EINVAL;
+	}
+
+	if ((uint8_t)dev->range > 3U) {
+		return -EINVAL;
+	}
+	mg_per_lsb = (uint32_t)lut[(uint8_t)dev->range];
+
+	/* 阈值：mg -> 寄存器 LSB，四舍五入，至少 1 LSB */
+	if (threshold_mg == 0U) {
+		threshold_mg = BMA253_MOTION_THRESHOLD_MG;
+	}
+	code = (threshold_mg + (mg_per_lsb / 2U)) / mg_per_lsb;
+
+	if (code == 0U) {
+		code = 1U;
+	}
+	if (code > 127U) {
+		LOG_WRN("运动阈值 %u mg 超过 %u LSB（该量程上限 %u mg），已截断",
+			(unsigned int)threshold_mg, 127U,
+			(unsigned int)(127U * mg_per_lsb));
+		code = 127U;
+	}
+
+	if (duration == 0U) {
+		duration = BMA253_MOTION_DURATION;
+	}
+	if (duration == 0U) {
+		/* 持续时间为 0 时 AOI 不工作，至少给 1 个采样周期 */
+		duration = 1U;
+	}
+	if (duration > 127U) {
+		duration = 127U;
+	}
+
+	/* ---------------- 配置顺序（按手册要求） ---------------- */
+
+	/* 1) CTRL_REG2：使能 AOI1 高通滤波（HPIS1）—— 运动检测的必要条件
+	 *
+	 * 【为什么必须开】HPIS1=0 时 AOI1 比较的是**含重力直流分量的绝对
+	 * 加速度**。板子静止时某轴恒为 ±1g（±4g 量程下 = 1000mg），而阈值
+	 * 只有 100mg，于是该轴永远"超过阈值"，中断状态恒定不变 ——
+	 * 示波器上量不到任何电平跳变。
+	 *
+	 * 使能高通滤波后，重力直流分量被滤掉，AOI1 只比较**动态加速度**，
+	 * 旋转/晃动才会产生中断。
+	 *
+	 * FDS 保持 0：让数据寄存器仍输出未滤波的原始加速度，
+	 * 这样读到的 g 值不受影响。 */
+	ret = bma253_reg_update(dev, BMA253_REG_CTRL_REG2,
+				BMA253_CTRL2_HPIS1 | BMA253_CTRL2_FDS,
+				BMA253_CTRL2_HPIS1);
+	if (ret < 0) {
+		return ret;
+	}
+	/* 复位高通滤波器，让新配置立即生效 */
+	(void)bma253_reg_update(dev, BMA253_REG_CTRL_REG2,
+				BMA253_CTRL2_HP_RESET, BMA253_CTRL2_HP_RESET);
+	k_msleep(2);
+	(void)bma253_reg_update(dev, BMA253_REG_CTRL_REG2,
+				BMA253_CTRL2_HP_RESET, 0U);
+
+	/* 2) CTRL_REG4：AOI_EN 是"禁止位"，0 = 使能 AOI（名字是反的！） */
+	ret = bma253_reg_update(dev, BMA253_REG_CTRL_REG4,
+				BMA253_CTRL4_AOI_EN, 0U);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 3) AOI1_DURATION：持续时间（不能为 0，否则 AOI 不工作） */
+	ret = bma253_reg_write(dev, BMA253_REG_AOI1_DUR,
+			       (uint8_t)(duration & 0x7FU));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 4) AOI1_THS：阈值 */
+	ret = bma253_reg_write(dev, BMA253_REG_AOI1_THS,
+			       (uint8_t)(code & 0x7FU));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 5) AOI1_CFG：只使能三轴「高事件」+ 指定模式
+	 *
+	 * 【为什么只开高事件，不开低事件】
+	 * 手册对检测原理的原文是"当传感器输出值**超过**设定阈值且达到设置
+	 * 时间范围，则判定传感器有动作" —— 只靠"超过阈值"这一个条件。
+	 *
+	 * 若同时开低事件（XL/YL/ZL），静止时轴值接近 0g，而 0 永远小于
+	 * 阈值，低事件就**持续为真** → 中断引脚常亮、不跳变，
+	 * 唤醒也会失效（中断一直有效，等于没有事件）。
+	 *
+	 * 所以运动/唤醒检测只开 XH/YH/ZH。 */
+	cfg = (uint8_t)(mode | BMA253_AOI_CFG_X_HIGH |
+			BMA253_AOI_CFG_Y_HIGH | BMA253_AOI_CFG_Z_HIGH);
+	ret = bma253_reg_write(dev, BMA253_REG_AOI1_CFG, cfg);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 6) CTRL_REG4：锁存中断（读 AOI1_SRC 清除） */
+	ret = bma253_reg_update(dev, BMA253_REG_CTRL_REG4,
+				BMA253_CTRL4_LIR_INT1, BMA253_CTRL4_LIR_INT1);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 7) CTRL_REG3：把 AOI1 中断路由到 INT1 引脚 */
+	ret = bma253_reg_update(dev, BMA253_REG_CTRL_REG3,
+				BMA253_CTRL3_I1_AOI1, BMA253_CTRL3_I1_AOI1);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* 8) CTRL_REG5：INT1 引脚高有效 + 推挽输出
+	 *    H_LACTIVE=0 → 高有效；INT_PP_OD=0 → 推挽 */
+	ret = bma253_reg_update(dev, BMA253_REG_CTRL_REG5,
+				BMA253_CTRL5_H_LACTIVE | BMA253_CTRL5_INT_PP_OD, 0U);
+	if (ret < 0) {
+		return ret;
+	}
+
+	printk("运动检测已配置：模式=0x%02X 阈值=%u mg (code=%u, 灵敏度 %u mg/LSB, "
+	       "量程=%u) 持续时间=%u\n",
+	       cfg, (unsigned int)threshold_mg, (unsigned int)code,
+	       (unsigned int)mg_per_lsb, (unsigned int)dev->range,
+	       (unsigned int)duration);
+
+	/* 回读关键寄存器：万一中断不出，这几行能直接定位问题 */
+	{
+		uint8_t c2 = 0U, c3 = 0U, c4 = 0U, c5 = 0U, ths = 0U, dur = 0U, src = 0U;
+
+		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG2, &c2);
+		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG3, &c3);
+		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG4, &c4);
+		(void)bma253_reg_read(dev, BMA253_REG_CTRL_REG5, &c5);
+		(void)bma253_reg_read(dev, BMA253_REG_AOI1_THS, &ths);
+		(void)bma253_reg_read(dev, BMA253_REG_AOI1_DUR, &dur);
+		(void)bma253_reg_read(dev, BMA253_REG_AOI1_SRC, &src);
+
+		printk("  中断配置回读：\n");
+		printk("    CTRL_REG2(0x21)=0x%02X  HPIS1=%u(须为1) FDS=%u(须为0)\n",
+		       c2, (unsigned)(c2 & BMA253_CTRL2_HPIS1 ? 1 : 0),
+		       (unsigned)(c2 & BMA253_CTRL2_FDS ? 1 : 0));
+		printk("    CTRL_REG3(0x22)=0x%02X  I1_AOI1=%u(须为1)\n",
+		       c3, (unsigned)(c3 & BMA253_CTRL3_I1_AOI1 ? 1 : 0));
+		printk("    CTRL_REG4(0x23)=0x%02X  AOI_EN=%u(须为0) LIR_INT1=%u\n",
+		       c4, (unsigned)(c4 & BMA253_CTRL4_AOI_EN ? 1 : 0),
+		       (unsigned)(c4 & BMA253_CTRL4_LIR_INT1 ? 1 : 0));
+		printk("    CTRL_REG5(0x24)=0x%02X  H_LACTIVE=%u INT_PP_OD=%u\n",
+		       c5, (unsigned)(c5 & BMA253_CTRL5_H_LACTIVE ? 1 : 0),
+		       (unsigned)(c5 & BMA253_CTRL5_INT_PP_OD ? 1 : 0));
+		printk("    AOI1_THS(0x32)=%u  AOI1_DUR(0x33)=%u\n",
+		       (unsigned)(ths & 0x7FU), (unsigned)(dur & 0x7FU));
+		printk("    AOI1_SRC(0x31)=0x%02X %s\n", src,
+		       (src & BMA253_AOI_SRC_IA) ? "(静止时就已触发！)"
+						 : "(静止时未触发，正常)");
+	}
+
+	LOG_INF("运动检测：阈值 %u mg -> code %u（%u mg/LSB），duration %u",
+		(unsigned int)threshold_mg, (unsigned int)code,
+		(unsigned int)mg_per_lsb, (unsigned int)duration);
+
+	return 0;
+}
+
+int bma253_motion_read_src(struct bma253_data *dev, uint8_t *src)
+{
+	if ((dev == NULL) || (src == NULL)) {
+		return -EINVAL;
+	}
+
+	/* 读 AOI1_SRC 同时会清除锁存的中断（LIR_INT1=1） */
+	return bma253_reg_read(dev, BMA253_REG_AOI1_SRC, src);
+}
+
 /* ------------------------- 数据读取 ------------------------- */
 
 int bma253_read_raw(struct bma253_data *dev, int16_t *x, int16_t *y, int16_t *z)
