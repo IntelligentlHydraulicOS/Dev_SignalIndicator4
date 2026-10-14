@@ -38,6 +38,7 @@
 #include "fuel_gauge.h"
 #include <zephyr/drivers/uart.h>
 #include "imu_driver/bma253_example.h"
+#include "buzzer/buzzer.h"
 
 
 #if DT_NODE_EXISTS(DT_NODELABEL(npm1300_ek_pmic))
@@ -188,11 +189,14 @@ int main(void)
 	dw3000_node_run();
 	bma253_example_init();
 
+	buzzer_init();
+
 	for (;;) {
 		if(k_uptime_get() - last_print_time > 5000) {
 			last_print_time = k_uptime_get();
 			fuel_gauge_update(charger, vbus_connected);
 			bma253_example_poll();
+			buzzer_on(100);
 		}
 		Function_of_indicator_lights();
 		Sensor_Info_Respone_Interval();

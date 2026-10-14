@@ -402,7 +402,7 @@ static void rx_to_cb(const dwt_cb_data_t *cb_data)
         }
         else
         {
-            printk("[%s %d] current is idle\n", __func__, __LINE__);
+            // printk("[%s %d] current is idle\n", __func__, __LINE__);
         }
     }
     else if(Dw1000_State.uicharacter == 2)
@@ -439,7 +439,7 @@ static void tx_done_cb(const dwt_cb_data_t *cb_data)
                 Dw1000_State.uiStep = 0;
                 Dw1000_State.uiTimeoutN = MAXTAGTIMEOUTN;
             }
-            printk("[%s %d] current is idle\n", __func__, __LINE__);
+            // printk("[%s %d] current is idle\n", __func__, __LINE__);
         }
     }
     else if(Dw1000_State.uicharacter == 2)

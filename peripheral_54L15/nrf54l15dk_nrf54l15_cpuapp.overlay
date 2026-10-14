@@ -67,6 +67,12 @@
 		gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
 		status = "okay";
 	};
+
+	buzzer_io: buzzer-io {
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 };
 
 &pinctrl{
@@ -233,7 +239,7 @@ i2c_bma253: &i2c21 {
 
 		npm1300_ek_charger: charger {
 			compatible = "nordic,npm1300-charger";
-			vbus-limit-microamp = <100000>;
+			vbus-limit-microamp = <1500000>;
 
 			thermistor-ohms = <10000>;
 			thermistor-beta = <3380>;
@@ -268,7 +274,7 @@ i2c_bma253: &i2c21 {
 			term-microvolt = <4150000>;
 			term-warm-microvolt = <4000000>;
 
-			current-microamp = <32000>;
+			current-microamp = <800000>;
 			dischg-limit-microamp = <1000000>;
 
 			/* 充满判定电流 = current-microamp 的百分比。

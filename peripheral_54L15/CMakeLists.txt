@@ -51,6 +51,7 @@ target_sources(app PRIVATE
   src/bms_driver/fuel_gauge.c
   src/imu_driver/bma253_i2c_driver.c
   src/imu_driver/bma253_example.c
+  src/buzzer/buzzer.c
 )
 
 # NORDIC SDK APP END
