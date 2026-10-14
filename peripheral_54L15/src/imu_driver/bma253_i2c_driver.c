@@ -665,6 +665,7 @@ int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
 	 *   2) 这颗克隆件的 IA(bit7) 位不可靠（真实运动时也可能是 0），
 	 *      用它判断"静止时是否已触发"结论必然是错的。
 	 * 需要判断中断源时，应在中断处理流程里读，不要在这里回读。 */
+	#if 0
 	{
 		uint8_t c2 = 0U, c3 = 0U, c4 = 0U, c5 = 0U, ths = 0U, dur = 0U;
 
@@ -694,7 +695,7 @@ int bma253_motion_init(struct bma253_data *dev, uint8_t mode,
 	LOG_INF("运动检测：阈值 %u mg -> code %u（%u mg/LSB），duration %u",
 		(unsigned int)threshold_mg, (unsigned int)code,
 		(unsigned int)mg_per_lsb, (unsigned int)duration);
-
+	#endif
 	return 0;
 }
 

@@ -143,11 +143,7 @@ int bms_init(void)
 int main(void)
 {
 	printf("Starting signal convert v4 app...\n");
-	k_msleep(2000);                 /* 有些 USB-TTL/终端打开时会吞掉开头数据 */
-	printk("=== printk ok ===\n");  /* 你原来的 printf 前一行 */
-	printf("=== printf ok ===\n");
-	fflush(stdout);
-
+	
 	bms_init();
 	nrfConfigInit();
 	LedLightInit();

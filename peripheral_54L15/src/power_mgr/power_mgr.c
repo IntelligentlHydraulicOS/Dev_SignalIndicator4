@@ -354,8 +354,8 @@ static void enter_deep_sleep(void)
 		       (unsigned)POWER_MGR_SCRATCH_MAGIC);
 	}
 
-	printk("power_mgr: [检查点A] 即将调用 regulator_parent_ship_mode(%s)\n",
-	       regulators_dev->name);
+	// printk("power_mgr: [检查点A] 即将调用 regulator_parent_ship_mode(%s)\n",
+	//        regulators_dev->name);
 
 	/* 4) 进入 ship mode。
 	 *
@@ -372,7 +372,7 @@ static void enter_deep_sleep(void)
 		ret = regulator_parent_ship_mode(regulators_dev);
 	}
 
-	printk("power_mgr: [检查点B] ship_mode 返回 %d\n", ret);
+	// printk("power_mgr: [检查点B] ship_mode 返回 %d\n", ret);
 
 	if (ret == -ENOSYS) {
 		printk("power_mgr: 无 ship_mode API，改用直接写寄存器\n");
@@ -383,7 +383,7 @@ static void enter_deep_sleep(void)
 		printk("power_mgr: ship 命令失败 %d\n", ret);
 	}
 
-	printk("power_mgr: [检查点C] 进入 5 秒等待循环\n");
+	// printk("power_mgr: [检查点C] 进入 5 秒等待循环\n");
 
 	/* 5) 最多等 5 秒确认是否真的断电。
 	 *    正常情况下跑不到这里：BUCK1 已断，MCU 停机。
