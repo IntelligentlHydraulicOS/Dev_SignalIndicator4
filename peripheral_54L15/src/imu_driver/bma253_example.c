@@ -322,7 +322,7 @@ static void motion_work_handler(struct k_work *work)
 		last_y = s.y_g;
 		last_z = s.z_g;
 		have_last = true;
-		delta = 0.0;
+		delta = 1.0;
 	} else {
 		delta = dist3(s.x_g - last_x, s.y_g - last_y, s.z_g - last_z);
 		last_x = s.x_g;

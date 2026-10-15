@@ -148,10 +148,10 @@ static const struct gpio_dt_spec dw3000_pd = GPIO_DT_SPEC_GET(DW3000_PD_NODE, gp
 
 static const struct device *const regulators_dev = DEVICE_DT_GET(REGULATORS_NODE);
 
-static bool uwb_powered;           /* UWB 是否处于工作状态（PD 已释放） */
-static bool uwb_inited;            /* DW3000 是否已完成初始化 */
-static int64_t last_motion_ms;
-static uint32_t motion_count;
+static bool uwb_powered = false;           /* UWB 是否处于工作状态（PD 已释放） */
+static bool uwb_inited = false;            /* DW3000 是否已完成初始化 */
+static int64_t last_motion_ms = 0;
+static uint32_t motion_count = 0;
 
 /* 10s 活动窗口：延时工作队列。
  * 有运动就 reschedule 成 10s 后；连续 10s 无运动则超时处理运行。 */
