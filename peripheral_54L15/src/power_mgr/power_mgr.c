@@ -149,7 +149,7 @@ static const struct gpio_dt_spec dw3000_pd = GPIO_DT_SPEC_GET(DW3000_PD_NODE, gp
 static const struct device *const regulators_dev = DEVICE_DT_GET(REGULATORS_NODE);
 
 static bool uwb_powered = false;           /* UWB 是否处于工作状态（PD 已释放） */
-static bool uwb_inited = false;            /* DW3000 是否已完成初始化 */
+static bool uwb_gpio_inited = false;           /* GPIO/中断回调是否已注册（只注册一次） */
 static int64_t last_motion_ms = 0;
 static uint32_t motion_count = 0;
 
@@ -193,24 +193,39 @@ static void print_reset_cause(void)
 static void uwb_power_off(void);
 static int uwb_power_on(void);
 
+/*
+ * UWB 上下电请求标志。
+ *
+ * 【为什么必须这样】
+ * uwb_power_on()/uwb_power_off() 会走 DW3000 的完整初始化链
+ * （dwt_probe / spi / dwt_configure / 多次 printk），栈开销远大于
+ * CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE（本工程 = 2048 字节）。
+ * 如果直接在系统工作队列线程里调用，会**栈溢出**，踩坏返回地址后
+ * 跳到野地址，表现为：
+ *     ***** BUS FAULT *****
+ *       Instruction bus error
+ *     Faulting instruction address: 0x08f38048
+ *
+ * 所以工作队列/延时的回调**只置标志**，真正的上下电放到主线程
+ * （CONFIG_MAIN_STACK_SIZE = 3584）的 power_mgr_sleep_check() 里执行。
+ */
+static volatile bool uwb_on_req;
+static volatile bool uwb_off_req;
+
 /**
  * 10s 活动窗口超时处理
  *
- * 用 k_work_delayable 而不是 k_timer 的好处：这个回调在**工作队列线程**
- * 上下文执行，可以直接读寄存器 / 操作 GPIO / 走 I2C。
- * 而 k_timer 的 expiry 回调在系统时钟中断里跑，做 I2C 会触发
- * 内核断言崩溃（sem.c:136 "Context switching while holding lock"），
- * 还得再套一层 k_work 转发。
+ * 用 k_work_delayable 而不是 k_timer：这个回调在**工作队列线程**执行，
+ * k_timer 的 expiry 回调在系统时钟中断里跑，做 I2C/GPIO 会触发内核断言
+ * （sem.c:136）。
+ *
+ * 注意：即使在工作队列线程，也**只置标志**，不做 DW3000 上下电。
  */
 static void window_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 
-	if (uwb_powered) {
-		printk("power_mgr: %u ms 活动窗口到期，UWB 进入低功耗\n",
-		       (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
-		uwb_power_off();
-	}
+	uwb_off_req = true;      /* 实际的关断由主线程执行 */
 }
 
 /** 重启（推迟）活动窗口：有运动时调用 */
@@ -233,32 +248,41 @@ static int uwb_power_on(void)
 		return 0;
 	}
 
-	/* 释放 PD（逻辑 0 = 正常工作） */
-	ret = gpio_pin_set_dt(&dw3000_pd, 0);
+	/* 【PD 极性】必须与驱动 dw3000_hw.c 的 dw3000_hw_init() 保持一致：
+	 *     gpio_pin_configure_dt(&conf.gpio_pd, GPIO_OUTPUT_ACTIVE);
+	 * 该函数在原来的启动流程里先执行，之后 SPI 通信正常，
+	 * 说明 **ACTIVE 电平 = DW3000 正常工作**（不是掉电）。
+	 * 之前写成 set_dt(...,0) 是反的：上电时反而拉成了掉电电平。 */
+	ret = gpio_pin_set_dt(&dw3000_pd, 1);
 	if (ret < 0) {
 		printk("power_mgr: 释放 PD 失败 %d，UWB 未唤醒\n", ret);
 		return ret;
 	}
 	k_msleep(5);
 
-	/* 复位 + 唤醒 + 初始化 */
-	dw3000_hw_reset();
-	k_msleep(5);
-	dw3000_hw_wakeup();
-
-	if (!uwb_inited) {
-		ret = dw3000_hw_init_interrupt();
-		if (ret < 0) {
-			printk("power_mgr: DW3000 中断初始化失败 %d\n", ret);
-			return ret;
-		}
+	/* GPIO / 中断回调只注册一次。
+	 *
+	 * dw3000_hw_node_init() 内部会执行 gpio_add_callback()，
+	 * 用**同一个 gpio_cb 结构体**重复调用会破坏回调链表，
+	 * 中断触发时跳到野地址（之前的 BUS FAULT）。
+	 * 所以这个函数全程只调一次。 */
+	if (!uwb_gpio_inited) {
 		dw3000_hw_node_init();
-		dw3000_node_run();
-		uwb_inited = true;
+		uwb_gpio_inited = true;
 	}
 
+	/* 【每次上电都必须重跑】
+	 *
+	 * PD 拉低是彻底掉电，DW3000 内部的 PLL/信道/前导码等全部配置丢失。
+	 * 只释放 PD 而不重新配置，dw1000_sendpoll() 发出去的帧是无效的。
+	 *
+	 * dw3000_node_run() 内部包含完整恢复序列：
+	 *   dwt_probe -> dw3000_hw_reset -> dwt_initialise -> dwt_configure
+	 * 正好是掉电后恢复所需，且它**不**重复注册 GPIO 回调，可以安全重入。 */
+	dw3000_node_run();
+
 	uwb_powered = true;
-	printk("power_mgr: UWB 已唤醒并就绪\n");
+	printk("power_mgr: UWB 已唤醒并就绪（已重新配置）\n");
 	return 0;
 }
 
@@ -268,17 +292,25 @@ static void uwb_power_off(void)
 		return;
 	}
 
-	/* 先让 DW3000 干净地下电（关中断、反初始化 SPI） */
+	/* 只关中断，**不调用 dw3000_hw_fini()**。
+	 *
+	 * dw3000_hw_fini() 会把 IRQ/RESET/WAKEUP/sync 全部配成
+	 * GPIO_DISCONNECTED，并把 SPI 也 fini 掉。之后再次上电时，
+	 * 只调 dw3000_node_run() 就无法恢复（引脚已断开）。
+	 * 保留引脚配置，只切 DW3000 的电即可。 */
 	dw3000_hw_interrupt_disable();
-	dw3000_hw_fini();
 	k_msleep(2);
 
-	/* 拉高 PD 让 DW3000 进入深睡眠（µA 级）。
+	/* 拉低 PD 让 DW3000 掉电（µA 级）。
+	 *
+	 * 【极性】与 dw3000_hw_init() 的 GPIO_OUTPUT_ACTIVE 相反：
+	 * ACTIVE = 正常工作，所以拉成非 ACTIVE 才是掉电。
+	 *
 	 * BUCK2 保持供电 —— 它同时给 I2C22 上拉供电，断了 PMIC 会失联。 */
-	(void)gpio_pin_set_dt(&dw3000_pd, 1);
+	(void)gpio_pin_set_dt(&dw3000_pd, 0);
 	uwb_powered = false;
 
-	printk("power_mgr: UWB 已进入低功耗（PD 拉高）\n");
+	printk("power_mgr: UWB 已进入低功耗（PD 拉低）\n");
 }
 
 /**
@@ -443,14 +475,17 @@ int power_mgr_init(void)
 	 * 它在工作队列线程执行，可以直接做 I2C，不需要额外的转发层。 */
 	k_work_init_delayable(&window_work, window_work_handler);
 
-	/* 配置 PD 引脚为输出，并立即拉高让 UWB 进入低功耗待机。
+	/* 配置 PD 引脚为输出，并置为【非 ACTIVE = 掉电】进入待机。
+	 *
+	 * 极性与 dw3000_hw_init() 相反：那里用 GPIO_OUTPUT_ACTIVE 表示
+	 * "正常工作"，所以 ACTIVE = 通电、非 ACTIVE = 掉电。
 	 * （BUCK2 保持供电，它还给 I2C22 上拉供电。） */
-	ret = gpio_pin_configure_dt(&dw3000_pd, GPIO_OUTPUT_ACTIVE);
+	ret = gpio_pin_configure_dt(&dw3000_pd, GPIO_OUTPUT_INACTIVE);
 	if (ret < 0) {
 		printk("power_mgr: PD 引脚配置失败 %d\n", ret);
 		return ret;
 	}
-	(void)gpio_pin_set_dt(&dw3000_pd, 1);
+	(void)gpio_pin_set_dt(&dw3000_pd, 0);
 	uwb_powered = false;
 
 	printk("power_mgr: 初始 BUCK1(MCU)=%s BUCK2(UWB供电)=%s，UWB 已置待机\n",
@@ -499,21 +534,26 @@ void power_mgr_notify_motion(void)
 	motion_count++;
 	last_motion_ms = k_uptime_get();
 
+	/* 【重要】这里**不直接调用 uwb_power_on()**。
+	 * 本函数由 motion_work_handler() 在系统工作队列线程里调用，
+	 * 而该线程栈只有 2048 字节，跑不动 DW3000 的初始化链（会栈溢出
+	 * 导致 BUS FAULT）。所以只置请求标志，由主线程执行。 */
 	if (!uwb_powered) {
 		printk("power_mgr: 运动触发（第 %u 次），打开 %u ms 活动窗口\n",
 		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
-		(void)uwb_power_on();
 	} else {
 		printk("power_mgr: 运动触发（第 %u 次），窗口刷新为 %u ms\n",
 		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
 	}
 
+	uwb_off_req = false;     /* 新运动取消待处理的关断 */
+	uwb_on_req = true;       /* 请求主线程上电（若已上电则空操作） */
+
 	/* 把 10s 窗口往后推。
 	 * 每来一次运动就 reschedule 一次，天然实现"10s 内继续触发则刷新窗口"：
 	 *   - 窗口内不断有运动 -> 一直往后推，UWB 持续发送
-	 *   - 连续 10s 无运动   -> 延时工作到期，回调里关断 UWB
-	 * 放在 uwb_power_on() 之后，这样窗口从"UWB 真正就绪"开始计时，
-	 * 不会被 DW3000 初始化耗时（几十 ms）吃掉。 */
+	 *   - 连续 10s 无运动   -> 延时工作到期，置 uwb_off_req
+	 * 计时从"运动发生时刻"开始，不受 DW3000 初始化耗时影响。 */
 	window_restart();
 }
 
@@ -521,8 +561,21 @@ void power_mgr_sleep_check(void)
 {
 	int64_t now = k_uptime_get();
 
-	/* 10s 活动窗口已由 window_work 负责，这里只判断深度休眠。
-	 * 30s 无运动 -> 进 ship mode（关机，正常情况下不返回）。 */
+	/* ---- 先执行 UWB 上下电（主线程，栈 3584，足够 DW3000 初始化）---- */
+	if (uwb_on_req) {
+		uwb_on_req = false;
+		(void)uwb_power_on();
+	}
+	if (uwb_off_req) {
+		uwb_off_req = false;
+		if (uwb_powered) {
+			printk("power_mgr: %u ms 活动窗口到期，UWB 进入低功耗\n",
+			       (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+			uwb_power_off();
+		}
+	}
+
+	/* ---- 30s 无运动 -> 进 ship mode（关机，正常情况下不返回）---- */
 	if ((now - last_motion_ms) >= (int64_t)POWER_MGR_DEEP_SLEEP_MS) {
 		/* 先取消未到期的窗口延时工作，避免关机过程中它又触发关 UWB */
 		(void)k_work_cancel_delayable(&window_work);
