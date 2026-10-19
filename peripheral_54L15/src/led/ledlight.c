@@ -7,7 +7,6 @@
 
 #include "ws2811_gpio.h"
 #include "ledlight.h"
-#include "peripheral_manage.h"
 
 static const struct gpio_dt_spec heart1_led = GPIO_DT_SPEC_GET(DT_NODELABEL(heart_led), gpios);
 
@@ -219,7 +218,7 @@ uint8_t Led_ParseData(uint8_t *uiBuff, uint16_t Size, uint8_t uiFromPort)
 		}
 		else if(uiFromPort == 1)
 		{
-			peripheral_send_message(uiSendBuff, Size);
+			// peripheral_send_message(uiSendBuff, Size);
 		}
 	}
 

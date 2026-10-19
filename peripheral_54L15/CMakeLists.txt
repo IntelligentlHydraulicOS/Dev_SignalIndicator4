@@ -9,7 +9,6 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(peripheral_54L15)
 
 target_include_directories(app PRIVATE src)
-target_include_directories(app PRIVATE src/ble)
 target_include_directories(app PRIVATE src/sensor)
 target_include_directories(app PRIVATE src/config)
 target_include_directories(app PRIVATE src/led)
@@ -29,7 +28,6 @@ target_sources(app PRIVATE
   src/main.c
   src/led/ws2811_gpio.c
   src/led/ledlight.c
-  src/uarts/uartdataparse.c
   src/lib/qmath.c
   src/dwt/dw3000/deca_rsl.c
   src/dwt/dw3000/deca_interface.c
@@ -42,12 +40,6 @@ target_sources(app PRIVATE
   src/dwt/dw3000_node/dw3000_node.c
   src/dwt/platform/config_options.c
   src/dwt/shared_data/shared_functions.c
-  src/ble/nus_manage.c
-  src/ble/peripheral_manage.c
-  src/ble/nus_peripheral.c
-  src/ble/nus_central_scan.c
-  src/ble/central_manage.c
-  src/sensor/sensordeal.c
   src/config/config.c
   src/bms_driver/fuel_gauge.c
   src/imu_driver/bma253_i2c_driver.c

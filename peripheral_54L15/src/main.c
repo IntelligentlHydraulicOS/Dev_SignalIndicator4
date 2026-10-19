@@ -21,11 +21,6 @@
 #include "dw3000_node.h"
 #include "ledlight.h"
 
-#include "nus_manage.h"
-#include "peripheral_manage.h"
-#include "central_manage.h"
-#include "nus_central_scan.h"
-#include "sensordeal.h"
 #include "config.h"
 
 #include <zephyr/kernel.h>
@@ -143,7 +138,10 @@ int bms_init(void)
 int main(void)
 {
 	printf("Starting signal convert v4 app...\n");
-	
+
+	int err = 0;
+	uint64_t last_print_time = 0;
+
 	bms_init();
 	nrfConfigInit();
 	LedLightInit();
@@ -154,9 +152,8 @@ int main(void)
 	 * 注意：UWB 不再在这里常开，改由运动检测触发上电。 */
 	power_mgr_init();
 
-#if 1
-	int err = 0;
-	uint64_t last_print_time = 0;
+#if 0
+	
 	nus_security_init();
 	err = bt_enable(NULL);
 	if (err) {
@@ -197,7 +194,6 @@ int main(void)
 			bma253_example_poll();
 		}
 		Function_of_indicator_lights();
-		Sensor_Info_Respone_Interval();
 
 		/* 低功耗状态机：只判断 30s 深度休眠（进 ship mode）。
 		 * 10s 活动窗口由 power_mgr 内部的 k_timer 精确计时，
