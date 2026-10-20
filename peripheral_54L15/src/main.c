@@ -11,15 +11,13 @@
 
 #include <zephyr/types.h>
 #include <soc.h>
-#include <zephyr/bluetooth/bluetooth.h>
-
-#include <zephyr/settings/settings.h>
 
 #include <stdio.h>
 #include <string.h>
 
 #include "dw3000_node.h"
 #include "ledlight.h"
+#include "nfc_config_tag.h"
 
 #include "config.h"
 
@@ -28,7 +26,6 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/mfd/npm13xx.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/settings/settings.h>
 #include <zephyr/sys/printk.h>
 #include "fuel_gauge.h"
 #include <zephyr/drivers/uart.h>
@@ -59,14 +56,6 @@ static void event_callback(const struct device *dev, struct gpio_callback *cb, u
 	if (pins & BIT(NPM13XX_EVENT_VBUS_REMOVED)) {
 		printk("Vbus removed\n");
 		vbus_connected = false;
-	}
-}
-
-void error(void)
-{
-	while (true) {
-		/* Spin for ever */
-		k_sleep(K_MSEC(1000));
 	}
 }
 
@@ -139,12 +128,17 @@ int main(void)
 {
 	printf("Starting signal convert v4 app...\n");
 
-	int err = 0;
 	uint64_t last_print_time = 0;
 
 	bms_init();
 	nrfConfigInit();
 	LedLightInit();
+
+	int err = nfc_config_tag_init();
+	if (err < 0) {
+		printk("NFC tag initialization failed: %d\n", err);
+	}
+
 	// RS485_deal_init();
 	// Zigbee_deal_init();
 
@@ -152,37 +146,6 @@ int main(void)
 	 * 注意：UWB 不再在这里常开，改由运动检测触发上电。 */
 	power_mgr_init();
 
-#if 0
-	
-	nus_security_init();
-	err = bt_enable(NULL);
-	if (err) {
-		error();
-	}
-
-	printk("[%s %d]Bluetooth initialized\n", __func__, __LINE__);
-
-	if (IS_ENABLED(CONFIG_SETTINGS)) {
-		settings_load();
-	}
-	
-
-	err = nus_peripheral_init();
-	if (err) {
-		printk("[%s %d]Failed to initialize peripheral (err: %d)\n", __func__, __LINE__, err);
-		return 0;
-	}
-
-	err = nus1_central_init();
-	if (err) {
-		printk("[%s %d]Failed to initialize central service (err: %d)\n", __func__, __LINE__, err);
-		return 0;
-	}
-
-	bt_central_scan_init();
-	bt_centralscan_start();
-#endif
-	
 	bma253_example_init();
 
 	buzzer_init();
@@ -209,4 +172,3 @@ int main(void)
 		k_msleep(100);
 	}
 }
-

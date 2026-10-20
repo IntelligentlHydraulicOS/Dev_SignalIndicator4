@@ -201,12 +201,8 @@
 	status = "disabled";
 };
 
-&uicr {
-	nfct-pins-as-gpios;
-};
-
 &nfct {
-	status = "disabled";
+	status = "okay";
 };
 
 &adc {
@@ -349,4 +345,3 @@ i2c_bma253: &i2c21 {
 		};
 	};
 };
-

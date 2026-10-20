@@ -9,6 +9,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(peripheral_54L15)
 
 target_include_directories(app PRIVATE src)
+target_include_directories(app PRIVATE src/nfc)
 target_include_directories(app PRIVATE src/sensor)
 target_include_directories(app PRIVATE src/config)
 target_include_directories(app PRIVATE src/led)
@@ -26,6 +27,7 @@ target_include_directories(app PRIVATE src/power_mgr)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
+  src/nfc/nfc_config_tag.c
   src/led/ws2811_gpio.c
   src/led/ledlight.c
   src/lib/qmath.c
