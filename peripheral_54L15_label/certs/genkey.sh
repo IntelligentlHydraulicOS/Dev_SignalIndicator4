@@ -1,0 +1,1 @@
+imgtool keygen -k "mcuboot.pem" -t ed25519
