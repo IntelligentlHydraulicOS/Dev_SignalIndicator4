@@ -114,7 +114,7 @@ static int pca9635_apply_led(uint8_t idx)
 	err |= pca9635_write_reg(PCA9635_PWM0 + ch_g, pca9635_scale(c->g));
 	err |= pca9635_write_reg(PCA9635_PWM0 + ch_b, pca9635_scale(c->b));
 
-    printf("[%s %d] pca9635_apply_led: idx=%d, r=%d, g=%d, b=%d, brightness=%d\n", __func__, __LINE__, idx, c->r, c->g, c->b, master_brightness);
+    // printf("[%s %d] pca9635_apply_led: idx=%d, r=%d, g=%d, b=%d, brightness=%d\n", __func__, __LINE__, idx, c->r, c->g, c->b, master_brightness);
 	return err;
 }
 
