@@ -258,13 +258,13 @@ void dw1000_sendpoll()
         Dw1000_State.uiStep = 0;
         Dw1000_State.uiTimeoutN = 0;
 
-        if(Dw1000_State.uiTagNodeID >= 3 && Dw1000_State.uiTagNodeID < 10)
+        if(Dw1000_State.uiTagNodeID >= 1 && Dw1000_State.uiTagNodeID < 10)
         {
-            Dw1000_State.uiTagNodeID = Dw1000_State.uiTagNodeID % 8 + 1;
+            Dw1000_State.uiTagNodeID = Dw1000_State.uiTagNodeID % 10 + 1;
         }
         else
         {
-            Dw1000_State.uiTagNodeID = 3;
+            Dw1000_State.uiTagNodeID = 1;
         }
         
         tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
