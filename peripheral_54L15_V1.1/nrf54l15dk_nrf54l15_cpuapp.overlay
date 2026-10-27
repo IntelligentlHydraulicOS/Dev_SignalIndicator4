@@ -120,7 +120,7 @@
 
 	pca9635_oe: pca9635-oe {
 		compatible = "nordic,gpio-pins";
-		gpios = <&gpio1 14 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio1 14 GPIO_ACTIVE_LOW>;
 		status = "okay";
 	};
 

@@ -34,6 +34,7 @@ struct LED_RGB_T rgbcolors[] = {
 	[7] = {0xFF, 0x00, 0x40}, /* orange */
 	[8] = {0xFF, 0x45, 0x00}, /* pink */
 	[9] = {0x00, 0x00, 0x00}, /* black */
+	[10] = {0x00, 0x00, 0x00}, /* STATE_CLOSE：灭 */
 };
 
 typedef enum {
@@ -65,6 +66,8 @@ void SetAllLEDs(struct LED_RGB_T *RgbLed, uint8_t uiLight)
 #ifdef NXP_PCA9635
 	pca9635_SetAllLEDs(RgbLed, uiLight);
 #endif
+
+	// pca9635_dump();
 
 }
 
