@@ -29,6 +29,7 @@
 #include "nus_central_scan.h"
 #include "sensordeal.h"
 #include "config.h"
+#include "bma253_example.h"
 
 void error(void)
 {
@@ -84,10 +85,13 @@ int main(void)
 
 	dw3000_node_run();
 
+	bma253_example_init();
+
 	for (;;) {
 		Function_of_indicator_lights();
 		k_msleep(150);
 		Sensor_Info_Respone_Interval();
+		bma253_example_poll();
 		//dw1000_sendpoll();
 	}
 }

@@ -23,6 +23,7 @@ target_include_directories(app PRIVATE src/dwt/dw3000_hw)
 target_include_directories(app PRIVATE src/dwt/dw3000_node)
 target_include_directories(app PRIVATE src/dwt/shared_data)
 target_include_directories(app PRIVATE src/dwt/platform)
+target_include_directories(app PRIVATE src/imu_driver)
 # NORDIC SDK APP START
 target_sources(app PRIVATE
   src/main.c
@@ -51,6 +52,8 @@ target_sources(app PRIVATE
   src/ble/central_manage.c
   src/sensor/sensordeal.c
   src/config/config.c
+  src/imu_driver/bma253_i2c_driver.c
+  src/imu_driver/bma253_example.c
 )
 
 # NORDIC SDK APP END
