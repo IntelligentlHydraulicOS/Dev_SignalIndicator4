@@ -256,13 +256,8 @@
 	status = "disabled";
 };
 
-/* 将 NFC 引脚释放为 GPIO */
-&uicr {
-    nfct-pins-as-gpios;
-};
-
 &nfct {
-	status = "disabled";
+	status = "okay";
 };
 
 &adc {

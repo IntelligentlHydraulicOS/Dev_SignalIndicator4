@@ -1,20 +1,34 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-extern uint8_t uiGetMaxCentralNumber();
-extern void uiSetMaxCentralNumber(uint8_t uiCentralNumber);
+#include <stdint.h>
 
-extern uint8_t uiGetLocalID();
-extern void uiSetLocalID(uint8_t uiLocalID);
+typedef struct {
+    uint8_t local_id;
+    uint8_t tx_power;
+    uint8_t connect_type;
+    uint8_t max_connections;
+    uint8_t device_number;
+    uint8_t uiUWBInterval;
+} app_config_t;
 
-extern uint8_t uiGetBLE_Txpower();
-extern void uiSetBLE_Txpower(uint8_t uiTxpower);
-extern uint8_t uiGetSensorConnectType();
-extern void uiSetSensorConnectType(uint8_t uiConnectType);
+uint8_t uiGetMaxCentralNumber(void);
+void uiSetMaxCentralNumber(uint8_t uiCentralNumber);
 
-extern void saveConfig();
-extern void nrfConfigInit();
+uint8_t uiGetLocalID(void);
+void uiSetLocalID(uint8_t uiLocalID);
 
-extern void uiSetUWBInterval(uint8_t uiUWBInterval);
-extern uint8_t uiGetUWBInterval();
+uint8_t uiGetBLE_Txpower(void);
+void uiSetBLE_Txpower(uint8_t uiTxpower);
+uint8_t uiGetSensorConnectType(void);
+void uiSetSensorConnectType(uint8_t uiConnectType);
+
+void saveConfig(void);
+void nrfConfigInit(void);
+
+void uiSetUWBInterval(uint8_t uiUWBInterval);
+uint8_t uiGetUWBInterval();
+
+int nrfConfigGet(app_config_t *config);
+int nrfConfigSet(const app_config_t *config);
 #endif
