@@ -12,6 +12,7 @@
 #include "shared_functions.h"
 #include "config_options.h"
 #include "RS485_deal.h"
+#include "config.h"
 
 #define ALL_MSG_SN_IDX 2
 #define ALL_MSG_TAG_MAC 3
@@ -78,6 +79,35 @@ static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr, uint8_t *uiCurrentMac
     return uiRet;
 }
 
+uint8_t get_uwbNodeID()
+{
+    return Dw1000_State.uiLocalNodeID;
+}
+
+void flash_uwbNodeID()
+{
+    uint8_t uiUWBInterval = uiGetUWBInterval();
+    uint8_t uiLocalID = uiGetLocalID();
+    if(uiUWBInterval != 0)
+    {
+        Dw1000_State.uiLocalNodeID = uiLocalID / uiUWBInterval;
+    }
+
+    if(Dw1000_State.uicharacter == 1)
+    {
+        get_LocalMacAddr(tx_poll_msg + ALL_MSG_TAG_MAC);
+        get_LocalMacAddr(tx_final_msg + ALL_MSG_TAG_MAC);
+        tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+        tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
+    }
+    else if(Dw1000_State.uicharacter == 2)
+    {
+        tx_resp_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiLocalNodeID;
+    }
+
+    printk("interval %d, localid %d, nodeid %d\r\n", uiGetUWBInterval(), uiGetLocalID(), Dw1000_State.uiLocalNodeID);
+}
+
 void dw3000_hw_node_init()
 {
     dw3000_hw_init();
@@ -113,17 +143,7 @@ void dw3000_hw_node_init()
     Dw1000_State.uiTimeoutN = 0;
     Dw1000_State.uiLocalNodeID = LOCALNODEID;
 
-    if(Dw1000_State.uicharacter == 1)
-    {
-        get_LocalMacAddr(tx_poll_msg + ALL_MSG_TAG_MAC);
-        get_LocalMacAddr(tx_final_msg + ALL_MSG_TAG_MAC);
-        tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
-        tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
-    }
-    else if(Dw1000_State.uicharacter == 2)
-    {
-        tx_resp_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiLocalNodeID;
-    }
+    flash_uwbNodeID();
 }
 
 void dw3000_node_run()

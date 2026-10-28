@@ -225,7 +225,8 @@ int pca9635_set_all_rgb(const struct LED_RGB_T *rgb, uint8_t brightness)
 	/* 颜色 + 亮度一次性下发，并把亮度记为当前全局亮度 */
 	master_brightness = brightness;
 
-	return pca9635_set_all_color(rgb->r, rgb->g, rgb->b);
+	//return pca9635_set_all_color(rgb->r, rgb->g, rgb->b);
+	return pca9635_set_all_color(rgb->b, rgb->g, rgb->r);
 }
 
 int pca9635_set_brightness(uint8_t br)

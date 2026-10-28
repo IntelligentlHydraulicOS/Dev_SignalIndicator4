@@ -62,6 +62,15 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
                 saveConfig();
             }
 		break;
+        case 0xA: //uwb interval
+            if(uiLen == 2)
+            {
+                uiSetUWBInterval(puiData[1]);
+            }
+		break;
+        case 0xB: //uwb interval
+            flash_uwbNodeID();
+		break;
         case 0xF8: //MCU reset
         {
             sys_reboot(SYS_REBOOT_WARM); 
@@ -76,7 +85,7 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
 {
     uint8_t uiBuffer[128] = {0}, uiRet = 1;
 	uint8_t uiCMD_ID = puiData[0];
-	char *myversion = "V 1.0.1_202608114_up";
+	char *myversion = "V 1.0.1_20261027";
 
     uiBuffer[0] = 0x11;
 	uiBuffer[1] = 0x22;
@@ -96,15 +105,24 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
         case 0x3: //get LocalID
             uiBuffer[3] = 0x2;
             uiBuffer[5] = uiGetLocalID();
+            printk("local id = %d\r\n", uiGetLocalID());
             break;
         case 0x6: //get local mac addr
             uiBuffer[3] = 0x7;
             get_LocalMacAddr(uiBuffer + 5);
             uiRet = 1;
             break;
-        case 0x8: //set conn sensor type 
+        case 0x8: //get conn sensor type 
             uiBuffer[3] = 0x2;
 		    uiBuffer[5] = uiGetSensorConnectType();
+            break;
+        case 0xA: //get uwb interval
+            uiBuffer[3] = 0x2;
+            uiBuffer[5] = uiGetUWBInterval();
+            break;
+        case 0xB: //get node id
+            uiBuffer[3] = 0x2;
+            uiBuffer[5] = get_uwbNodeID();
             break;
         case 0xFA: //get version
             memcpy(uiBuffer + 5, myversion, strlen(myversion));

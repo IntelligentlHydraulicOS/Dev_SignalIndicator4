@@ -19,9 +19,10 @@ typedef struct tag_nrf54L15_config_t
     uint8_t uiTxpower;
     uint8_t uiConnectType;
     uint8_t uiCentral_number;
-}nrf54L15_config_t;
+    uint8_t uiUWBInterval;
+}__packed __aligned(16) nrf54L15_config_t;
 
-static nrf54L15_config_t nrf54l15_config = {0};
+static nrf54L15_config_t nrf54l15_config __aligned(16);
 /*
 const struct device *flash_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller));
 const struct flash_area *fa;
@@ -43,7 +44,7 @@ static void config_flash_read()
 
     printk("[%s %d] start 0x%lx all size 0x%x", __func__, __LINE__, fa->fa_off, fa->fa_size);
 
-    flash_area_read(fa, 1, &nrf54l15_config, sizeof(nrf54L15_config_t));
+    flash_area_read(fa, 0, &nrf54l15_config, sizeof(nrf54L15_config_t));
 
     if(nrf54l15_config.uiTxpower > 8)
     {
@@ -87,7 +88,19 @@ static void config_flash_write()
     }
     else
     {
-        printk("[%s %d] fail to write flash\n", __func__, __LINE__);
+        if(iRet == -EINVAL)
+        {
+            printk("[%s %d] fail to write flash, error(%d), 参数无效（偏移/大小越界\n", __func__, __LINE__, iRet);
+        }
+        else if(iRet == -EACCES)
+        {
+            printk("[%s %d] fail to write flash, error(%d), 写保护未解除\n", __func__, __LINE__, iRet);
+        }
+        else if(iRet == -EIO)
+        {
+            printk("[%s %d] fail to write flash, error(%d), 硬件写入错误\n", __func__, __LINE__, iRet);
+        }
+        
     }
 
     flash_area_close(fa);
@@ -97,6 +110,17 @@ static void config_flash_write()
 void nrfConfigInit()
 {
     config_flash_read();
+
+    if(nrf54l15_config.uiLocalID == 0xff || nrf54l15_config.uiLocalID == 0)
+    {
+        nrf54l15_config.uiLocalID = 120;
+    }
+
+    if(nrf54l15_config.uiUWBInterval == 0xff || nrf54l15_config.uiUWBInterval == 0)
+    {
+        nrf54l15_config.uiUWBInterval = 8;
+    }
+
     // nrf54l15_config.uiLocalID = 120;
     // nrf54l15_config.uiTxpower = 8;
     // nrf54l15_config.uiCentral_number = 10;
@@ -143,7 +167,18 @@ void uiSetSensorConnectType(uint8_t uiConnectType)
     nrf54l15_config.uiConnectType = uiConnectType;
 }
 
+uint8_t uiGetUWBInterval()
+{
+    return nrf54l15_config.uiUWBInterval;
+}
+
+void uiSetUWBInterval(uint8_t uiUWBInterval)
+{
+    nrf54l15_config.uiUWBInterval = uiUWBInterval;
+}
+
 void saveConfig()
 {
     config_flash_write();
 }
+

@@ -14,4 +14,7 @@ extern void uiSetSensorConnectType(uint8_t uiConnectType);
 
 extern void saveConfig();
 extern void nrfConfigInit();
+
+extern void uiSetUWBInterval(uint8_t uiUWBInterval);
+extern uint8_t uiGetUWBInterval();
 #endif
