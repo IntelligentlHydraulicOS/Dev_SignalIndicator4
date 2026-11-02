@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <math.h>
+#include <zephyr/drivers/gpio.h>
 
 #include "deca_probe_interface.h"
 #include "deca_device_api.h"
@@ -20,9 +21,11 @@
 #define FINAL_MSG_POLL_TX_TS_IDX 12
 #define FINAL_MSG_RESP_RX_TS_IDX 20
 #define FINAL_MSG_FINAL_TX_TS_IDX 28
-#define LOCALNODEID 3
+#define LOCALNODEID 4
 
 #define MAXTAGNUMBER 10
+
+static const struct gpio_dt_spec uwb_connect = GPIO_DT_SPEC_GET(DT_NODELABEL(uwb_connect), gpios);
 
 typedef struct tag_dw1000_state_t
 {
@@ -108,8 +111,26 @@ void flash_uwbNodeID()
     printk("interval %d, localid %d, nodeid %d\r\n", uiGetUWBInterval(), uiGetLocalID(), Dw1000_State.uiLocalNodeID);
 }
 
+int get_uwb_gpio()
+{
+    return gpio_pin_get_dt(&uwb_connect);
+}
+
 void dw3000_hw_node_init()
 {
+    int err = gpio_pin_configure_dt(&uwb_connect, GPIO_INPUT);
+    if (err) {
+        printk("[%s %d] Cannot configure uwb_connect gpio\n", __func__, __LINE__);
+    }
+
+	int val = gpio_pin_get_dt(&uwb_connect);
+
+	if(val == 0)
+	{
+		printk("[%s %d] no uwb\n", __func__, __LINE__);
+		return;
+	}
+
     dw3000_hw_init();
     dw3000_hw_init_interrupt();
     
@@ -148,6 +169,12 @@ void dw3000_hw_node_init()
 
 void dw3000_node_run()
 {
+    if(get_uwb_gpio() == 0)
+    {
+        printk("[%s %d] no uwb\n", __func__, __LINE__);
+        return;
+    }
+
     dwt_config_t config = {
         .chan = 5,                /* Channel number. */
         .txPreambLength = DWT_PLEN_1024,     /* Preamble length. Used in TX only. */

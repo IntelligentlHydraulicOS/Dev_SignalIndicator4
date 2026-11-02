@@ -8,6 +8,27 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(peripheral_54L15)
 
+
+set(BUILD_INFO_H ${CMAKE_BINARY_DIR}/generated/build_info.h)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
+
+# 永远执行的自定义目标，每次build必跑
+add_custom_target(gen_build_info_target ALL
+  COMMAND ${CMAKE_COMMAND}
+    -DAPPLICATION_SOURCE_DIR=${APPLICATION_SOURCE_DIR}
+    -DBUILD_INFO_H=${BUILD_INFO_H}
+    -P ${APPLICATION_SOURCE_DIR}/gen_build_info.cmake
+  BYPRODUCTS ${BUILD_INFO_H}
+  COMMENT "Generating build_info.h (always run)"
+  VERBATIM
+)
+
+# app 依赖这个目标，保证编译代码前先生成
+add_dependencies(app gen_build_info_target)
+zephyr_include_directories(${CMAKE_BINARY_DIR}/generated)
+
+
+
 target_include_directories(app PRIVATE src)
 target_include_directories(app PRIVATE src/ble)
 target_include_directories(app PRIVATE src/sensor)

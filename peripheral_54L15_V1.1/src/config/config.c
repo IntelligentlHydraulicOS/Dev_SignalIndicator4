@@ -9,6 +9,8 @@
 #include <zephyr/sys/printk.h>
 
 #include "config.h"
+#include "dw3000_node.h"
+
 
 #define CONFIG_RECORD_MAGIC 0x53434647U
 #define CONFIG_RECORD_VERSION 1U
@@ -95,6 +97,16 @@ static void config_flash_read(void)
     if (nrf54l15_config.max_connections > 0xF) {
         nrf54l15_config.max_connections = 0xF;
     }
+
+    if(nrf54l15_config.local_id == 0xff || nrf54l15_config.local_id == 0)
+    {
+        nrf54l15_config.local_id = 120;
+    }
+
+    if(nrf54l15_config.uiUWBInterval == 0xff || nrf54l15_config.uiUWBInterval == 0)
+    {
+        nrf54l15_config.uiUWBInterval = 8;
+    }
 }
 
 static int config_flash_write(void)
@@ -147,6 +159,7 @@ uint8_t uiGetLocalID(void)
 void uiSetLocalID(uint8_t uiLocalID)
 {
     nrf54l15_config.local_id = uiLocalID;
+    flash_uwbNodeID();
 }
 
 uint8_t uiGetBLE_Txpower(void)
@@ -177,6 +190,7 @@ uint8_t uiGetUWBInterval()
 void uiSetUWBInterval(uint8_t uiUWBInterval)
 {
     nrf54l15_config.uiUWBInterval = uiUWBInterval;
+    flash_uwbNodeID();
 }
 
 int nrfConfigGet(app_config_t *config)

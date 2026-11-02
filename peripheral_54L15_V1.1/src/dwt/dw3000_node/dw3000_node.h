@@ -8,5 +8,6 @@ extern void dw1000_sendpoll();
 extern void get_LocalMacAddr(uint8_t *uiLocalMacAddr);
 extern uint8_t get_uwbNodeID();
 extern void flash_uwbNodeID();
+extern int get_uwb_gpio();
 
 #endif

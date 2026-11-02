@@ -9,6 +9,7 @@
 #include "nus_manage.h"
 #include "peripheral_manage.h"
 #include "dw3000_node.h"
+#include "build_info.h"
 
 static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromPort)
 {
@@ -68,9 +69,6 @@ static void cmd_Set_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
                 uiSetUWBInterval(puiData[1]);
             }
 		break;
-        case 0xB: //uwb interval
-            flash_uwbNodeID();
-		break;
         case 0xF8: //MCU reset
         {
             sys_reboot(SYS_REBOOT_WARM); 
@@ -85,7 +83,6 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
 {
     uint8_t uiBuffer[128] = {0}, uiRet = 1;
 	uint8_t uiCMD_ID = puiData[0];
-	char *myversion = "V 1.0.1_20261027";
 
     uiBuffer[0] = 0x11;
 	uiBuffer[1] = 0x22;
@@ -125,8 +122,30 @@ static void cmd_Get_data_parse(uint8_t *puiData, uint16_t uiLen, uint8_t uiFromP
             uiBuffer[5] = get_uwbNodeID();
             break;
         case 0xFA: //get version
-            memcpy(uiBuffer + 5, myversion, strlen(myversion));
-		    uiBuffer[3] = 0x2 + strlen(myversion);
+            memcpy(uiBuffer + 5, BUILD_TIME_STR, strlen(BUILD_TIME_STR));
+            if(get_zigbee_gpio())
+            {
+                if(get_uwb_gpio())
+                {
+                    memcpy(uiBuffer + 5 + strlen(BUILD_TIME_STR), "_zig_uwb", 8);
+                    uiBuffer[3] = 0x2 + strlen(BUILD_TIME_STR) + 8;
+                }
+                else
+                {
+                    memcpy(uiBuffer + 5 + strlen(BUILD_TIME_STR), "_zig", 4);
+                    uiBuffer[3] = 0x2 + strlen(BUILD_TIME_STR) + 4;
+                }
+                
+            }
+            else if(get_uwb_gpio())
+            {
+                memcpy(uiBuffer + 5 + strlen(BUILD_TIME_STR), "_uwb", 4);
+                uiBuffer[3] = 0x2 + strlen(BUILD_TIME_STR) + 4;
+            }
+            else
+            {
+                uiBuffer[3] = 0x2 + strlen(BUILD_TIME_STR);
+            }
             break;
         case 0xFB: //get connect info
             cmd_Get_Sensor_Respose(uiFromPort);

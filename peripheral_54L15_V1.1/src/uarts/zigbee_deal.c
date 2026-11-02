@@ -31,6 +31,7 @@ UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
 static const struct gpio_dt_spec zigbee_mode = GPIO_DT_SPEC_GET(DT_NODELABEL(zigbee_mode), gpios);
 // static const struct gpio_dt_spec zigbee_m00 = GPIO_DT_SPEC_GET(DT_NODELABEL(zigbee_m00), gpios);
 static const struct gpio_dt_spec zigbee_m01 = GPIO_DT_SPEC_GET(DT_NODELABEL(zigbee_m01), gpios);
+static const struct gpio_dt_spec zigbee_connect = GPIO_DT_SPEC_GET(DT_NODELABEL(zigbee_connect), gpios);
 
 static K_SEM_DEFINE(ble_init_ok, 0, 1);
 
@@ -279,11 +280,27 @@ static int uart_init(void)
 	return err;
 }
 
+int get_zigbee_gpio()
+{
+	return gpio_pin_get_dt(&zigbee_connect);
+}
 
 void Zigbee_deal_init()
 {
-    
-	int err = gpio_pin_configure_dt(&zigbee_mode, GPIO_OUTPUT);
+    int err = gpio_pin_configure_dt(&zigbee_connect, GPIO_INPUT);
+    if (err) {
+        printk("[%s %d] Cannot configure zigbee_connect gpio\n", __func__, __LINE__);
+    }
+
+	int val = gpio_pin_get_dt(&zigbee_connect);
+
+	if(val == 0)
+	{
+		printk("[%s %d] no zigbee\n", __func__, __LINE__);
+		return;
+	}
+
+	err = gpio_pin_configure_dt(&zigbee_mode, GPIO_OUTPUT);
     if (err) {
         printk("[%s %d] Cannot configure zigbee_mode gpio\n", __func__, __LINE__);
     }
@@ -324,6 +341,11 @@ void Zigbee_deal_init()
 void sendMsgdata2Zigbeeuart(uint8_t *data, uint16_t len)
 {
 	int err;
+
+	if(get_zigbee_gpio() == 0)
+	{
+		return;
+	}
 
 	for (uint16_t pos = 0; pos != len;) {
 		struct uart_data_t *tx = k_malloc(sizeof(*tx));
@@ -385,6 +407,10 @@ void sendzigbee()
 }
 void Zigbee_dealsetuartReceive()
 {
+	if(get_zigbee_gpio() == 0)
+	{
+		return;
+	}
 	k_sem_give(&ble_init_ok);
 }
 

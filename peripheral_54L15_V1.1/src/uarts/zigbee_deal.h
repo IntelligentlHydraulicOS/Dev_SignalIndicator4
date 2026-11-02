@@ -4,7 +4,9 @@
 #include <stdint.h>
 int Zigbee_deal_init(void);
 
-void sendMsgdata2Zigbeeuart(uint8_t *data, uint16_t len);
-void Zigbee_dealsetuartReceive();
-void sendzigbee();
+extern void sendMsgdata2Zigbeeuart(uint8_t *data, uint16_t len);
+extern void Zigbee_dealsetuartReceive();
+extern void sendzigbee();
+extern int get_zigbee_gpio();
+
 #endif
