@@ -208,15 +208,15 @@ static uint8_t getSensorID(sensor_info_t *psensorinfo)
     uint8_t uiRet = 0;
     if(psensorinfo->uiType == 0x1)//pressure
     {
-        uiRet = 0x10 + psensorinfo->uiDevID;
+        uiRet = 0x10 + psensorinfo->uiDevID - 1;
     }
     else if(psensorinfo->uiType == 0x2)//travel
     {
-        uiRet = 0x30 + psensorinfo->uiDevID;
+        uiRet = 0x30 + psensorinfo->uiDevID - 1;
     }
     else if(psensorinfo->uiType == 0x3)//angle
     {
-        uiRet = 0x20 + psensorinfo->uiDevID;
+        uiRet = 0x20 + psensorinfo->uiDevID - 1;
     }
     else if(psensorinfo->uiType == 0x4)
     {
@@ -313,7 +313,7 @@ void Sensor_Info_Respone_All(uint8_t uiFromPort)
     uiBuffer[3] = uiNum * uinterval + 2;
     uiBuffer[5] = uiNum;
 
-    if(uiNum)
+    // if(uiNum)
     {
         if(uiFromPort == 1)
         {
@@ -356,7 +356,7 @@ void cmd_Get_Sensor_Respose(uint8_t uiFromPort)
     uiBuffer[3] = uiNum * uinterval + 2;
     uiBuffer[5] = uiNum;
 
-    if(uiNum)
+    // if(uiNum)
     {
         if(uiFromPort == 1)
         {
