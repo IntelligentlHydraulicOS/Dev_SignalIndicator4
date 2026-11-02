@@ -246,15 +246,15 @@ static int uart_init(void)
 	tx = k_malloc(sizeof(*tx));
 
 	if (tx) {
-		// pos = snprintf(tx->data, sizeof(tx->data),
-		// 	       "Starting Nordic UART service sample\n");
+		pos = snprintf(tx->data, sizeof(tx->data),
+			       "APPStart");
 
-		// if ((pos < 0) || (pos >= sizeof(tx->data))) {
-		// 	k_free(rx);
-		// 	k_free(tx);
-		// 	printk("[%s %d] snprintf returned %d\n", __func__, __LINE__, pos);
-		// 	return -ENOMEM;
-		// }
+		if ((pos < 0) || (pos >= sizeof(tx->data))) {
+			k_free(rx);
+			k_free(tx);
+			printk("[%s %d] snprintf returned %d\n", __func__, __LINE__, pos);
+			return -ENOMEM;
+		}
 
 		tx->len = pos;
 	} else {

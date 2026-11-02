@@ -1,0 +1,23 @@
+string(TIMESTAMP BUILD_TIMESTAMP "V1.0.1_%Y%m%d%H%M%S")
+string(TIMESTAMP BUILD_UNIX_TS "%s")
+
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${APPLICATION_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_SHA)
+    set(GIT_SHA "unknown")
+endif()
+
+file(CONFIGURE
+    OUTPUT ${BUILD_INFO_H}
+    CONTENT "#pragma once
+#define BUILD_TIME_STR \"${BUILD_TIMESTAMP}\"
+#define BUILD_UNIX_TS ${BUILD_UNIX_TS}
+#define GIT_COMMIT_SHA \"${GIT_SHA}\"
+"
+    @ONLY
+)

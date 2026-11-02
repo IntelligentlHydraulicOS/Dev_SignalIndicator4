@@ -53,7 +53,7 @@ typedef enum {
 
 LEDsState_t g_LED_pastState = STATE_CLOSE;
 LEDsState_t g_LED_currentState = STATE_NORMAL;
-uint8_t uiLedsLight = 1;//0:常亮  2：闪亮
+uint8_t uiLedsLight = 0;//0:常亮  2：闪亮
 uint8_t uiFlashingFlag = 0;
 
 
@@ -66,8 +66,6 @@ void SetAllLEDs(struct LED_RGB_T *RgbLed, uint8_t uiLight)
 #ifdef NXP_PCA9635
 	pca9635_SetAllLEDs(RgbLed, uiLight);
 #endif
-
-	// pca9635_dump();
 
 }
 
@@ -174,7 +172,7 @@ uint8_t Led_ParseData(uint8_t *uiBuff, uint16_t Size, uint8_t uiFromPort)
 {
 	uint8_t uiRet = 1;
 	uint8_t uiSendBuff[8] = {0};
-	if(Size == 5 && uiBuff[0] == 0x0 && uiBuff[1] == 0x33 && uiBuff[2] == 0x02)
+	if(Size >= 5 && uiBuff[0] == 0x0 && uiBuff[1] == 0x33 && uiBuff[2] == 0x02)
 	{
 		uiLedsLight = uiBuff[3];
 
