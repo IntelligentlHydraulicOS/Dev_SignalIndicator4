@@ -28,11 +28,7 @@
 static int64_t ref_time;
 
 static const struct battery_model battery_model = {
-#if DT_NODE_EXISTS(DT_NODELABEL(npm1300_ek_pmic))
 #include "battery_model.inc"
-#elif DT_NODE_EXISTS(DT_NODELABEL(npm1304_ek_pmic))
-#include "battery_model_20mAh.inc"
-#endif
 };
 
 static bool store_state;
