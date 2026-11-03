@@ -425,6 +425,7 @@ static void enter_deep_sleep(void)
 	 *      - 心跳没出现         -> 在 regulator_parent_ship_mode() 里就复位了
 	 *      - 心跳 1~4 次        -> 在 5 秒等待中间被复位
 	 *      - 心跳 50 次 + 警告  -> ship 完全没生效 */
+	if (0)
 	{
 		int beat = 0;
 
@@ -439,11 +440,15 @@ static void enter_deep_sleep(void)
 		}
 	}
 
-	printk("!! power_mgr: ship mode 未生效，仍在运行。\n");
-	printk("!! 按手册 7.4 节逐项确认：\n");
-	printk("!!   1) VBUS 是否已断开（见上面的 VBUS 状态打印）\n");
-	printk("!!   2) SHPHLDCONFIG/TASKSHPHLDCFGSTROBE 是否已配置\n");
-	printk("!!   3) SHPHLD 按键是否接好（退出 ship 要靠它拉低）\n");
+	static bool warned = false;
+	if (!warned) {
+		warned = true;
+		printk("!! power_mgr: ship mode 未生效，仍在运行。\n");
+		printk("!! 按手册 7.4 节逐项确认：\n");
+		printk("!!   1) VBUS 是否已断开（见上面的 VBUS 状态打印）\n");
+		printk("!!   2) SHPHLDCONFIG/TASKSHPHLDCFGSTROBE 是否已配置\n");
+		printk("!!   3) SHPHLD 按键是否接好（退出 ship 要靠它拉低）\n");
+	}
 }
 
 /* ------------------------- 对外接口 ------------------------- */
@@ -578,6 +583,7 @@ void power_mgr_sleep_check(void)
 	/* ---- 30s 无运动 -> 进 ship mode（关机，正常情况下不返回）---- */
 	if ((now - last_motion_ms) >= (int64_t)POWER_MGR_DEEP_SLEEP_MS) {
 		/* 先取消未到期的窗口延时工作，避免关机过程中它又触发关 UWB */
+		last_motion_ms = now;
 		(void)k_work_cancel_delayable(&window_work);
 		enter_deep_sleep();
 	}
