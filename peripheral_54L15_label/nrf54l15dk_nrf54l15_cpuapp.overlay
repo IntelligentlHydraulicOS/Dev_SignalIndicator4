@@ -1,6 +1,10 @@
 #include <zephyr/dt-bindings/regulator/npm13xx.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
+&wdt31 {
+	status = "okay";
+};
+
 / {
 	/delete-node/ leds;
 	/delete-node/ buttons;

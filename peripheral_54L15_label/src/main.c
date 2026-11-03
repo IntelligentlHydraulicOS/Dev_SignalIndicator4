@@ -23,10 +23,12 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/mfd/npm13xx.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/drivers/watchdog.h>
 #include "fuel_gauge.h"
 #include <zephyr/drivers/uart.h>
 #include "imu_driver/bma253_example.h"
@@ -44,7 +46,42 @@
 
 static const struct device *pmic = NPM13XX_DEVICE(pmic);
 static const struct device *charger = NPM13XX_DEVICE(charger);
+static const struct device *const watchdog = DEVICE_DT_GET(DT_ALIAS(watchdog0));
 static volatile bool vbus_connected;
+
+static int watchdog_init(void)
+{
+	static const struct wdt_timeout_cfg config = {
+		.window = {
+			.min = 0,
+			.max = 5000,
+		},
+		.callback = NULL,
+		.flags = WDT_FLAG_RESET_SOC,
+	};
+	int channel_id;
+	int err;
+
+	if (!device_is_ready(watchdog)) {
+		printk("Watchdog device is not ready\n");
+		return -ENODEV;
+	}
+
+	channel_id = wdt_install_timeout(watchdog, &config);
+	if (channel_id < 0) {
+		printk("Failed to install watchdog timeout: %d\n", channel_id);
+		return channel_id;
+	}
+
+	err = wdt_setup(watchdog, 0);
+	if (err) {
+		printk("Failed to start watchdog: %d\n", err);
+		return err;
+	}
+
+	printk("Watchdog started with a 5 second timeout\n");
+	return channel_id;
+}
 
 static void event_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
@@ -129,6 +166,12 @@ int main(void)
 	printf("Starting signal convert v4 app...\n");
 
 	uint64_t last_print_time = 0;
+	int watchdog_channel;
+
+	watchdog_channel = watchdog_init();
+	if (watchdog_channel < 0) {
+		return watchdog_channel;
+	}
 
 	bms_init();
 	nrfConfigInit();
@@ -167,6 +210,11 @@ int main(void)
 		 * 窗口外 UWB 已进入低功耗，调用它没有意义。 */
 		if (power_mgr_uwb_is_active()) {
 			dw1000_sendpoll();
+		}
+
+		if (wdt_feed(watchdog, watchdog_channel) != 0) {
+			printk("Watchdog feed failed\n");
+			return -EIO;
 		}
 
 		k_msleep(100);
