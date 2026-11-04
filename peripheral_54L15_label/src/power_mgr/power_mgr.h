@@ -29,17 +29,47 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/**
+ * @brief Callback invoked immediately before the idle task enters
+ *        System-ON-IDLE.
+ *
+ * The callback runs in idle-thread context with interrupts locked. It must
+ * not block, sleep, allocate memory, or perform operations that can wait.
+ */
+typedef void (*power_mgr_idle_callback_t)(void);
+
 /* 活动窗口时长：检测到运动后，DW3000 持续发送的时间（可调） */
-#define POWER_MGR_ACTIVE_WINDOW_MS    10000U
+#define POWER_MGR_ACTIVE_WINDOW_MS    30000U
 
 /* 深度休眠超时：连续无运动多久后进入 ship mode（可调） */
-#define POWER_MGR_DEEP_SLEEP_MS       30000U
+#define POWER_MGR_DEEP_SLEEP_MS       (5*60*1000)
 
 /**
  * @brief 初始化电源管理（获取 PMIC/regulator 句柄，打印初始状态）
  * @return 0 成功
  */
 int power_mgr_init(void);
+
+/**
+ * @brief Register the business callback executed before System-ON-IDLE.
+ *
+ * Registration is intended to happen once during application startup.
+ *
+ * @param callback Callback to invoke before the CPU executes WFI.
+ * @return 0 on success, -EINVAL if callback is NULL, -EALREADY if already set.
+ */
+int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback);
+
+/**
+ * @brief Wait for a filtered three-axis motion event or timeout.
+ *
+ * A motion event releases the wait immediately. The timeout keeps the main
+ * loop periodic when no motion occurs.
+ *
+ * @param timeout_ms Maximum wait time in milliseconds.
+ * @return 0 if motion woke the caller, -EAGAIN if the timeout expired.
+ */
+int power_mgr_wait_for_motion(uint32_t timeout_ms);
 
 /**
  * @brief 上电/唤醒后使能 UWB 供电（BUCK2）

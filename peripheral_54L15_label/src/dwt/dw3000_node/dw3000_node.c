@@ -1,5 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/atomic.h>
 #include <math.h>
 
 #include "deca_probe_interface.h"
@@ -38,6 +39,7 @@ typedef struct tag_dw1000_state_t
 
 dw1000_state_t Dw1000_State = {0};
 static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr, uint8_t *uiCurrentMacAddr);
+static atomic_t poll_response_pending;
 
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
@@ -245,7 +247,12 @@ void dw1000_sendMsg1(uint8_t *sendbuf, uint16_t sendlen, uint8_t txmode)
 }
 
 #define MAXTAGTIMEOUTN 4
-void dw1000_sendpoll()
+bool dw1000_take_poll_response(void)
+{
+	return (atomic_set(&poll_response_pending, 0) != 0);
+}
+
+void dw1000_sendpoll(void)
 {
     if(Dw1000_State.uiTimeoutN < MAXTAGTIMEOUTN)
     {
@@ -296,6 +303,7 @@ void dw1000_parsedata(uint8_t *rx_buffer, uint16_t frame_len)
     }
     else if(frame_len == sizeof(tx_resp_msg) &&  rx_buffer[ALL_MSG_AUCHOR_NODEID] == Dw1000_State.uiTagNodeID && uiDiffLocalMacAddr(rx_buffer + ALL_MSG_TAG_MAC, Dw1000_State.uiMacAddr) == 1)//tag receive resp
     {
+        atomic_set(&poll_response_pending, 1);
         uint64_t tag_poll_tx_ts = get_tx_timestamp_u64();
         uint64_t tag_resp_rx_ts = get_rx_timestamp_u64();
 

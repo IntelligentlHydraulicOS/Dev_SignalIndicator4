@@ -16,6 +16,11 @@ config ZMS
 config NVS
 	default y if !(SOC_FLASH_NRF_RRAM || SOC_FLASH_NRF_MRAM)
 
+config APP_SYSTEM_ON_IDLE_CALLBACK
+	bool
+	default y
+	select ARM_ON_ENTER_CPU_IDLE_HOOK
+
 config APP_NFC_CONFIG_PIN
 	string "PIN required in NFC configuration records"
 	default ""

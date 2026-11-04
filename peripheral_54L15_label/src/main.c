@@ -35,6 +35,13 @@
 #include "buzzer/buzzer.h"
 #include "power_mgr/power_mgr.h"
 
+#define MAIN_LOOP_SLEEP_MIN_MS           100U
+#define MAIN_LOOP_SLEEP_MAX_MS           20000U
+#define MAIN_LOOP_SLEEP_BACKOFF_NUM      12U
+#define MAIN_LOOP_SLEEP_BACKOFF_DEN      10U
+#define UWB_NO_RESPONSE_GRACE_MS         3000U
+#define WATCHDOG_TIMEOUT_MS              25000U
+
 
 #if DT_NODE_EXISTS(DT_NODELABEL(npm1300_ek_pmic))
 #define NPM13XX_DEVICE(dev) DEVICE_DT_GET(DT_NODELABEL(npm1300_ek_##dev))
@@ -49,12 +56,20 @@ static const struct device *charger = NPM13XX_DEVICE(charger);
 static const struct device *const watchdog = DEVICE_DT_GET(DT_ALIAS(watchdog0));
 static volatile bool vbus_connected;
 
+static void business_idle_callback(void)
+{
+	/*
+	 * System-ON-IDLE 前的业务处理放在这里。
+	 * 此回调运行在 idle 上下文且中断已锁定，不能阻塞或睡眠。
+	 */
+}
+
 static int watchdog_init(void)
 {
 	static const struct wdt_timeout_cfg config = {
 		.window = {
 			.min = 0,
-			.max = 5000,
+			.max = WATCHDOG_TIMEOUT_MS,
 		},
 		.callback = NULL,
 		.flags = WDT_FLAG_RESET_SOC,
@@ -79,7 +94,7 @@ static int watchdog_init(void)
 		return err;
 	}
 
-	printk("Watchdog started with a 5 second timeout\n");
+	printk("Watchdog started with a %u ms timeout\n", WATCHDOG_TIMEOUT_MS);
 	return channel_id;
 }
 
@@ -166,6 +181,9 @@ int main(void)
 	printf("Starting signal convert v4 app...\n");
 
 	uint64_t last_print_time = 0;
+	uint32_t main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+	uint64_t uwb_power_on_time_ms = 0U;
+	bool uwb_active = false;
 	int watchdog_channel;
 
 	watchdog_channel = watchdog_init();
@@ -188,6 +206,10 @@ int main(void)
 	/* 低功耗状态机：管理 BUCK2(UWB) 上下电与 ship mode。
 	 * 注意：UWB 不再在这里常开，改由运动检测触发上电。 */
 	power_mgr_init();
+	if (power_mgr_register_idle_callback(business_idle_callback) != 0) {
+		printk("Failed to register System-ON-IDLE callback\n");
+		return -EALREADY;
+	}
 
 	bma253_example_init();
 
@@ -198,8 +220,10 @@ int main(void)
 			last_print_time = k_uptime_get();
 			fuel_gauge_update(charger, vbus_connected);
 			bma253_example_poll();
+			printf("main loop: uptime=%llu ms, motion_count=%u, "
+			       "main_loop_sleep_ms=%u\n",
+			       k_uptime_get(), (unsigned)power_mgr_get_motion_count(), main_loop_sleep_ms);
 		}
-		Function_of_indicator_lights();
 
 		/* 低功耗状态机：只判断 30s 深度休眠（进 ship mode）。
 		 * 10s 活动窗口由 power_mgr 内部的 k_timer 精确计时，
@@ -207,9 +231,51 @@ int main(void)
 		power_mgr_sleep_check();
 
 		/* 只在「运动触发的 10s 活动窗口」内才发送 UWB 轮询。
-		 * 窗口外 UWB 已进入低功耗，调用它没有意义。 */
-		if (power_mgr_uwb_is_active()) {
+		 * 窗口外 UWB 已进入低功耗，调用它没有意义。
+		 *
+		 * 规则：
+		 *   1. 从 UWB 上电成功的时刻开始计时；
+		 *   2. 前 3s 内未收到应答时，不启动退避；
+		 *   3. 超过 3s 仍未收到应答时，才按指数/线性退避增加 sleep；
+		 *   4. 任何有效应答都立即恢复到最短间隔，并重置 3s 窗口。
+		 */
+		bool uwb_is_active = power_mgr_uwb_is_active();
+		if (uwb_is_active && !uwb_active) {
+			uwb_active = true;
+			uwb_power_on_time_ms = k_uptime_get();
+			main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+		}
+		if (!uwb_is_active) {
+			uwb_active = false;
+			uwb_power_on_time_ms = 0U;
+			main_loop_sleep_ms = MAIN_LOOP_SLEEP_MAX_MS;
+			Indicator_lights_off();
+		} else {
+			Function_of_indicator_lights();
 			dw1000_sendpoll();
+			if (dw1000_take_poll_response()) {
+				uwb_power_on_time_ms = k_uptime_get();
+				main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+			} else {
+				uint32_t elapsed_since_uwb_on_ms = (uint32_t)(k_uptime_get() - uwb_power_on_time_ms);
+
+				if (elapsed_since_uwb_on_ms >= UWB_NO_RESPONSE_GRACE_MS) {
+					if (main_loop_sleep_ms < MAIN_LOOP_SLEEP_MAX_MS) {
+						uint32_t next_sleep_ms =
+							(main_loop_sleep_ms * MAIN_LOOP_SLEEP_BACKOFF_NUM) /
+							MAIN_LOOP_SLEEP_BACKOFF_DEN;
+						if (next_sleep_ms < main_loop_sleep_ms) {
+							next_sleep_ms = main_loop_sleep_ms;
+						}
+						if (next_sleep_ms > MAIN_LOOP_SLEEP_MAX_MS) {
+							next_sleep_ms = MAIN_LOOP_SLEEP_MAX_MS;
+						}
+						main_loop_sleep_ms = next_sleep_ms;
+					}
+				} else {
+					main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+				}
+			}
 		}
 
 		if (wdt_feed(watchdog, watchdog_channel) != 0) {
@@ -217,6 +283,6 @@ int main(void)
 			return -EIO;
 		}
 
-		k_msleep(100);
+		(void)power_mgr_wait_for_motion(main_loop_sleep_ms);
 	}
 }

@@ -128,7 +128,11 @@ static int iLedTimeout = 0;
 void Function_of_indicator_lights(void)
 {
 	uint32_t iCurrentTimeout = k_ticks_to_ms_near32(k_uptime_ticks());
-	if((iCurrentTimeout - iLedTimeout) < 1000)
+	if(uiheartLight == 1 && (iCurrentTimeout - iLedTimeout) < 5000)
+	{
+		return;
+	}
+	else if(uiheartLight == 0 && (iCurrentTimeout - iLedTimeout) < 200)
 	{
 		return;
 	}
@@ -142,6 +146,11 @@ void Function_of_indicator_lights(void)
 
 	heartledlight();
     LedsSetState(g_LED_pastState);
+}
+
+void Indicator_lights_off(void)
+{
+	gpio_pin_set_dt(&heart1_led, 0);
 }
 
 /*
