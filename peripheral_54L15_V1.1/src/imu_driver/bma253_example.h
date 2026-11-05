@@ -102,4 +102,5 @@ void bma253_print_raw_views(void);
  */
 void bma253_example_int_setup(void);
 
+void bma253_example_get_angle(uint16_t *pitch, uint16_t *roll);
 #endif /* BMA253_EXAMPLE_H */

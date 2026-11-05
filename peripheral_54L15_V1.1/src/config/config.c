@@ -10,7 +10,7 @@
 
 #include "config.h"
 #include "dw3000_node.h"
-
+#include "nfc_config_tag.h"
 
 #define CONFIG_RECORD_MAGIC 0x53434647U
 #define CONFIG_RECORD_VERSION 1U
@@ -91,9 +91,11 @@ static void config_flash_read(void)
     if (nrf54l15_config.tx_power > 8) {
         nrf54l15_config.tx_power = 8;
     }
-    if (nrf54l15_config.connect_type > 0xF) {
+    if (nrf54l15_config.connect_type > 0xF || nrf54l15_config.connect_type == 0) 
+    {
         nrf54l15_config.connect_type = 0xF;
     }
+
     if (nrf54l15_config.max_connections > 0xF) {
         nrf54l15_config.max_connections = 0xF;
     }
@@ -160,6 +162,7 @@ void uiSetLocalID(uint8_t uiLocalID)
 {
     nrf54l15_config.local_id = uiLocalID;
     flash_uwbNodeID();
+    ndef_file_set_info();
 }
 
 uint8_t uiGetBLE_Txpower(void)
@@ -170,6 +173,7 @@ uint8_t uiGetBLE_Txpower(void)
 void uiSetBLE_Txpower(uint8_t uiTxpower)
 {
     nrf54l15_config.tx_power = uiTxpower;
+    ndef_file_set_info();
 }
 
 uint8_t uiGetSensorConnectType(void)
@@ -180,6 +184,7 @@ uint8_t uiGetSensorConnectType(void)
 void uiSetSensorConnectType(uint8_t uiConnectType)
 {
     nrf54l15_config.connect_type = uiConnectType;
+    ndef_file_set_info();
 }
 
 uint8_t uiGetUWBInterval()
@@ -191,6 +196,7 @@ void uiSetUWBInterval(uint8_t uiUWBInterval)
 {
     nrf54l15_config.uiUWBInterval = uiUWBInterval;
     flash_uwbNodeID();
+    
 }
 
 int nrfConfigGet(app_config_t *config)

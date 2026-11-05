@@ -93,20 +93,14 @@ void flash_uwbNodeID()
     uint8_t uiLocalID = uiGetLocalID();
     if(uiUWBInterval != 0)
     {
-        Dw1000_State.uiLocalNodeID = uiLocalID / uiUWBInterval;
+        Dw1000_State.uiLocalNodeID = (uiLocalID / uiUWBInterval) + 1;
+    }
+    else
+    {
+        Dw1000_State.uiLocalNodeID = 9;
     }
 
-    if(Dw1000_State.uicharacter == 1)
-    {
-        get_LocalMacAddr(tx_poll_msg + ALL_MSG_TAG_MAC);
-        get_LocalMacAddr(tx_final_msg + ALL_MSG_TAG_MAC);
-        tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
-        tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
-    }
-    else if(Dw1000_State.uicharacter == 2)
-    {
-        tx_resp_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiLocalNodeID;
-    }
+    tx_resp_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiLocalNodeID;
 
     printk("interval %d, localid %d, nodeid %d\r\n", uiGetUWBInterval(), uiGetLocalID(), Dw1000_State.uiLocalNodeID);
 }
@@ -135,14 +129,14 @@ void dw3000_hw_node_init()
     dw3000_hw_init_interrupt();
     
     uint32_t low  = NRF_FICR->DEVICEADDR[0];
-	uint32_t high = NRF_FICR->DEVICEADDR[1];
+	uint32_t high = NRF_FICR->DEVICEADDR[1] & 0x0000FFFF;
 
     Dw1000_State.uiMacAddr[5] = (low >> 0)  & 0xFF;
     Dw1000_State.uiMacAddr[4] = (low >> 8)  & 0xFF;
     Dw1000_State.uiMacAddr[3] = (low >> 16) & 0xFF;
     Dw1000_State.uiMacAddr[2] = (low >> 24) & 0xFF;
     Dw1000_State.uiMacAddr[1] = (high >> 0) & 0xFF;
-    Dw1000_State.uiMacAddr[0] = (high >> 8) & 0xFF;
+    Dw1000_State.uiMacAddr[0] = ((high >> 8) & 0xFF) | 0xC0;
     printk("[%s %d] addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, Dw1000_State.uiMacAddr[0], Dw1000_State.uiMacAddr[1], Dw1000_State.uiMacAddr[2], Dw1000_State.uiMacAddr[3], Dw1000_State.uiMacAddr[4], Dw1000_State.uiMacAddr[5]);
 
     dw3000node_callbacks.cbCiaDone = NULL;
@@ -165,6 +159,8 @@ void dw3000_hw_node_init()
     Dw1000_State.uiLocalNodeID = LOCALNODEID;
 
     flash_uwbNodeID();
+    get_LocalMacAddr(tx_poll_msg + ALL_MSG_TAG_MAC);
+    get_LocalMacAddr(tx_final_msg + ALL_MSG_TAG_MAC);
 }
 
 void dw3000_node_run()

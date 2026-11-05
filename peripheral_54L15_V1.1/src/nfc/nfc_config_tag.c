@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "nfc_config_tag.h"
+#include "dw3000_node.h"
 
 #define NFC_NDEF_FILE_SIZE 256U
 #define NFC_UPDATE_QUEUE_DEPTH 2
@@ -70,24 +71,27 @@ static int ndef_file_encode_text(uint8_t *file, size_t file_size,
 	return 0;
 }
 
-static int ndef_file_set_info(void)
+int ndef_file_set_info(void)
 {
 	app_config_t config;
-	char text[192];
+	char text[192], cMacaddr[32] = {0};
+	uint8_t uiMacAddr[8] = {0};
 	uint8_t next_file = active_ndef_file ^ 1U;
 
 	int ret = nrfConfigGet(&config);
 	if (ret != 0) {
 		return ret;
 	}
-
+	get_LocalMacAddr(uiMacAddr);
+	sprintf(cMacaddr, "%02X:%02X:%02X:%02X:%02X:%02X", uiMacAddr[0], uiMacAddr[1], uiMacAddr[2], uiMacAddr[3], uiMacAddr[4], uiMacAddr[5]);
 	ret = snprintf(text, sizeof(text),
 		       "INFO1;model=SignalConvert-R4;device_id=%s;device_number=%u;"
-		       "local_id=%u;connect_type=%u;tx_power=%u;max_connections=%u",
+		       "local_id=%u;connect_type=%u;tx_power=%u;max_connections=%u;mac=%s",
 		       device_id, (unsigned int)config.device_number,
 		       (unsigned int)config.local_id, (unsigned int)config.connect_type,
 		       (unsigned int)config.tx_power,
-		       (unsigned int)config.max_connections);
+		       (unsigned int)config.max_connections,
+				cMacaddr);
 	if (ret < 0 || (size_t)ret >= sizeof(text)) {
 		return -EMSGSIZE;
 	}
@@ -185,7 +189,7 @@ static int ndef_config_parse(char *text, app_config_t *config)
 		SEEN_TX_POWER = BIT(4),
 		SEEN_MAX_CONNECTIONS = BIT(5),
 	};
-
+	
 	char *saveptr = NULL;
 	char *token = strtok_r(text, ";", &saveptr);
 	if (token == NULL || strcmp(token, "CFG1") != 0) {

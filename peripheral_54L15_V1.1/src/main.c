@@ -31,6 +31,7 @@
 #include "config.h"
 #include "bma253_example.h"
 #include "nfc_config_tag.h"
+#include "build_info.h"
 
 void error(void)
 {
@@ -42,15 +43,14 @@ void error(void)
 
 int main(void)
 {
-	
+	printk("build time is %s\n", BUILD_TIME_STR);
 	nrfConfigInit();
 	LedLightInit();
 
-	RS485_deal_init();
 	Zigbee_deal_init();
-#if 1
+	RS485_deal_init();
+	
 	dw3000_hw_node_init();
-#endif
 
 	int err = 0;
 	nus_security_init();
@@ -93,7 +93,7 @@ int main(void)
 		Function_of_indicator_lights();
 		k_msleep(150);
 		Sensor_Info_Respone_Interval();
-		// bma253_example_poll();
+		bma253_example_poll();
 		//dw1000_sendpoll();
 	}
 }

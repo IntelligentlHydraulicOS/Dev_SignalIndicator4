@@ -44,6 +44,9 @@ static struct bma253_data bma253;
 /* 被忽略的伪中断累计次数（电气干扰） */
 static uint32_t noise_irq_count;
 
+static uint16_t uipitch;
+static uint16_t uiroll;
+
 /**
  * @brief 扫描总线并初始化 BMA253
  * @return 0 成功
@@ -496,12 +499,21 @@ void bma253_example_poll(void)
 	roll  = bma253_roll_deg(&s);
 	mag   = bma253_accel_mag_g(&s);
 
-	printk("BMA253: raw=%6d,%6d,%6d  g=%.3f,%.3f,%.3f  m/s²=%.3f,%.3f,%.3f  "
-	       "|a|=%.3fg  pitch=%.2f deg  roll=%.2f deg\n",
-	       s.raw_x, s.raw_y, s.raw_z,
-	       s.x_g, s.y_g, s.z_g,
-	       s.x_ms2, s.y_ms2, s.z_ms2,
-	       mag, pitch, roll);
+	uipitch = (uint16_t)(round(pitch * 10));
+	uiroll = (uint16_t)(round(roll * 10));
+
+	// printk("BMA253: raw=%6d,%6d,%6d  g=%.3f,%.3f,%.3f  m/s²=%.3f,%.3f,%.3f  "
+	//        "|a|=%.3fg  pitch=%.2f deg  roll=%.2f deg\n",
+	//        s.raw_x, s.raw_y, s.raw_z,
+	//        s.x_g, s.y_g, s.z_g,
+	//        s.x_ms2, s.y_ms2, s.z_ms2,
+	//        mag, pitch, roll);
+}
+
+void bma253_example_get_angle(uint16_t *pitch, uint16_t *roll)
+{
+	*pitch = uipitch;
+	*roll = uiroll;
 }
 
 /**

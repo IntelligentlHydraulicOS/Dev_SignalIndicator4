@@ -2,7 +2,8 @@
 #include "RS485_deal.h"
 #include "central_manage.h"
 #include "peripheral_manage.h"
-
+#include "bma253_example.h"
+#include <stdlib.h> 
 #pragma pack(push, 1)
 typedef struct tag_sensor_info_t
 {
@@ -32,10 +33,11 @@ typedef struct tag_Current_Sensor_Info_t
     uint8_t uiValueY1;
 }Current_Sensor_Info_t;
 
-
+void cmd_Get_Sensor_Respose(uint8_t uiFromPort);
 #define MAX_SENSORNUM 0xA
 static sensor_info_t sensor_info[MAX_SENSORNUM] = {0};
 static Current_Sensor_Info_t current_sensor_info[MAX_SENSORNUM] = {0};
+static uint16_t uiCurpitch = 0, uiCurroll = 0;
 
 static uint8_t FindSensorInfo(const bt_addr_le_t *addr)
 {
@@ -166,6 +168,7 @@ void Sensor_Addr_Add(const bt_addr_le_t *addr, uint8_t uiSensorType, uint8_t uiD
     sensor_info[iNoneAddr].uiPositionID = uiPositionID;
     sensor_info[iNoneAddr].uiDevID = uiDevID;
     sensor_info[iNoneAddr].uiType = uiSensorType;
+    cmd_Get_Sensor_Respose(2);
     printk("[%s %d] success to add this addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, addr->a.val[5], addr->a.val[4], addr->a.val[3], addr->a.val[2], addr->a.val[1], addr->a.val[0]);
 }
 
@@ -184,6 +187,7 @@ void Sensor_Addr_Del(const bt_addr_le_t *addr)
 
         printk("[%s %d] success to del this addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, addr->a.val[5], addr->a.val[4], addr->a.val[3], addr->a.val[2], addr->a.val[1], addr->a.val[0]);
     }
+    cmd_Get_Sensor_Respose(2);
 }
 
 void Sensor_Addr_Set_Status(const bt_addr_le_t *addr, uint8_t uiStatus)
@@ -245,6 +249,7 @@ void Sensor_Info_Respone_Interval()
 	uiBuffer[4] = 0xFC;
 
     uint8_t *puiData = uiBuffer + 6, uinterval = 9;
+    uint16_t uipitch, uiroll;
 
     for(int i = 0; i < MAX_SENSORNUM; i++)
     {
@@ -269,6 +274,19 @@ void Sensor_Info_Respone_Interval()
             current_sensor_info[i].uiValueY1 = sensor_info[i].uiValueY1;
             uiNum++;
         }
+    }
+
+    bma253_example_get_angle(&uipitch, &uiroll);
+    if(abs(uiCurpitch - uipitch) > 5 || abs(uiCurroll - uiroll) > 5)
+    {
+        *(puiData + uiNum * uinterval) = 0x27;
+        *(puiData + uiNum * uinterval + 1) = uipitch & 0xff;
+        *(puiData + uiNum * uinterval + 2) = (uipitch >> 8) & 0xff;
+        *(puiData + uiNum * uinterval + 3) = uiroll & 0xff;
+        *(puiData + uiNum * uinterval + 4) = (uiroll >> 8) & 0xff;
+        uiCurpitch = uipitch;
+        uiCurroll = uiroll;
+        uiNum++;
     }
 
     uiBuffer[3] = uiNum * uinterval + 2;
@@ -308,6 +326,15 @@ void Sensor_Info_Respone_All(uint8_t uiFromPort)
             *(puiData + uiNum * uinterval + 8) = sensor_info[i].uiSoc;
             uiNum++;
         }
+    }
+
+    {
+        *(puiData + uiNum * uinterval) = 0x27;
+        *(puiData + uiNum * uinterval + 1) = uiCurpitch & 0xff;
+        *(puiData + uiNum * uinterval + 2) = (uiCurpitch >> 8) & 0xff;
+        *(puiData + uiNum * uinterval + 3) = uiCurroll & 0xff;
+        *(puiData + uiNum * uinterval + 4) = (uiCurroll >> 8) & 0xff;
+        uiNum++;
     }
 
     uiBuffer[3] = uiNum * uinterval + 2;
