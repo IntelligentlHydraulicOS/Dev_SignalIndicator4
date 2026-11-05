@@ -9,6 +9,7 @@
 #include <zephyr/drivers/regulator.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/mfd/npm13xx.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/sys/printk.h>
 
 #include "power_mgr.h"
@@ -147,6 +148,12 @@ static const struct gpio_dt_spec dw3000_pd = GPIO_DT_SPEC_GET(DW3000_PD_NODE, gp
 #define REGULATORS_NODE  DT_PARENT(DT_NODELABEL(buck1))
 
 static const struct device *const regulators_dev = DEVICE_DT_GET(REGULATORS_NODE);
+static const struct device *const bma253_i2c =
+	DEVICE_DT_GET(DT_NODELABEL(i2c21));
+static const struct device *const npm1300_i2c =
+	DEVICE_DT_GET(DT_NODELABEL(i2c22));
+static const struct device *const console_uart =
+	DEVICE_DT_GET(DT_NODELABEL(uart20));
 
 static bool uwb_powered = false;           /* UWB 是否处于工作状态（PD 已释放） */
 static bool uwb_gpio_inited = false;           /* GPIO/中断回调是否已注册（只注册一次） */
@@ -154,6 +161,7 @@ static int64_t last_motion_ms = 0;
 static uint32_t motion_count = 0;
 static power_mgr_idle_callback_t idle_callback;
 static K_SEM_DEFINE(motion_sem, 0, 1);
+static K_MUTEX_DEFINE(sensor_io_mutex);
 
 /* 10s 活动窗口：延时工作队列。
  * 有运动就 reschedule 成 10s 后；连续 10s 无运动则超时处理运行。 */
@@ -175,7 +183,69 @@ int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback)
 
 int power_mgr_wait_for_motion(uint32_t timeout_ms)
 {
-	return k_sem_take(&motion_sem, K_MSEC(timeout_ms));
+	int ret;
+
+	/*
+	 * Prevent the motion work item from starting an I2C transaction while
+	 * the BMA253 bus is being suspended.
+	 */
+	k_mutex_lock(&sensor_io_mutex, K_FOREVER);
+
+	/*
+	 * Suspend the buses and console only while the application is blocked.
+	 * The PMIC bus must be resumed before this function returns because
+	 * power_mgr_sleep_check() uses it on the next loop iteration.
+	 */
+	ret = pm_device_action_run(bma253_i2c, PM_DEVICE_ACTION_SUSPEND);
+	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+		printk("power_mgr: BMA253 I2C suspend failed: %d\n", ret);
+	}
+
+	ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_SUSPEND);
+	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+		printk("power_mgr: nPM1300 I2C suspend failed: %d\n", ret);
+	}
+
+	ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_SUSPEND);
+	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+		printk("power_mgr: console UART suspend failed: %d\n", ret);
+	}
+
+	ret = k_sem_take(&motion_sem, K_MSEC(timeout_ms));
+
+	int resume_ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_RESUME);
+	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
+		printk("power_mgr: console UART resume failed: %d\n", resume_ret);
+	}
+
+	resume_ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_RESUME);
+	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
+		printk("power_mgr: nPM1300 I2C resume failed: %d\n", resume_ret);
+	}
+
+	resume_ret = pm_device_action_run(bma253_i2c, PM_DEVICE_ACTION_RESUME);
+	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
+		printk("power_mgr: BMA253 I2C resume failed: %d\n", resume_ret);
+	}
+
+	k_mutex_unlock(&sensor_io_mutex);
+
+	return ret;
+}
+
+void power_mgr_wake_from_isr(void)
+{
+	k_sem_give(&motion_sem);
+}
+
+void power_mgr_sensor_io_lock(void)
+{
+	k_mutex_lock(&sensor_io_mutex, K_FOREVER);
+}
+
+void power_mgr_sensor_io_unlock(void)
+{
+	k_mutex_unlock(&sensor_io_mutex);
 }
 
 bool z_arm_on_enter_cpu_idle(void)
@@ -289,6 +359,7 @@ static int uwb_power_on(void)
 		return ret;
 	}
 	k_msleep(5);
+	dw3000_hw_exit_low_power();
 
 	/* GPIO / 中断回调只注册一次。
 	 *
@@ -322,13 +393,13 @@ static void uwb_power_off(void)
 		return;
 	}
 
-	/* 只关中断，**不调用 dw3000_hw_fini()**。
+	/* 关闭 UWB 控制引脚并关中断，**不调用 dw3000_hw_fini()**。
 	 *
 	 * dw3000_hw_fini() 会把 IRQ/RESET/WAKEUP/sync 全部配成
 	 * GPIO_DISCONNECTED，并把 SPI 也 fini 掉。之后再次上电时，
 	 * 只调 dw3000_node_run() 就无法恢复（引脚已断开）。
-	 * 保留引脚配置，只切 DW3000 的电即可。 */
-	dw3000_hw_interrupt_disable();
+	 * 保留 GPIO 配置，使用低电平保持 UWB 引脚处于低功耗状态。 */
+	dw3000_hw_enter_low_power();
 	k_msleep(2);
 
 	/* 拉低 PD 让 DW3000 掉电（µA 级）。
@@ -583,8 +654,6 @@ void power_mgr_notify_motion(void)
 
 	uwb_off_req = false;     /* 新运动取消待处理的关断 */
 	uwb_on_req = true;       /* 请求主线程上电（若已上电则空操作） */
-	k_sem_give(&motion_sem);
-
 	/* 把 10s 窗口往后推。
 	 * 每来一次运动就 reschedule 一次，天然实现"10s 内继续触发则刷新窗口"：
 	 *   - 窗口内不断有运动 -> 一直往后推，UWB 持续发送

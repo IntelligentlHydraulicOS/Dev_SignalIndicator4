@@ -114,6 +114,42 @@ void dw3000_hw_interrupt_disable(void)
 	}
 }
 
+void dw3000_hw_enter_low_power(void)
+{
+	dw3000_hw_interrupt_disable();
+
+	if (conf.gpio_reset.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_reset, GPIO_OUTPUT_INACTIVE);
+	}
+
+	if (conf.gpio_wakeup.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_wakeup, GPIO_OUTPUT_INACTIVE);
+	}
+
+	if (conf.gpio_pd.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_pd, GPIO_OUTPUT_INACTIVE);
+	}
+
+	if (conf.gpio_irq.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_irq, GPIO_OUTPUT_INACTIVE);
+	}
+
+	dw3000_spi_enter_low_power();
+}
+
+void dw3000_hw_exit_low_power(void)
+{
+	dw3000_spi_exit_low_power();
+
+	if (conf.gpio_reset.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_reset, GPIO_OUTPUT_ACTIVE);
+	}
+
+	if (conf.gpio_wakeup.port) {
+		(void)gpio_pin_configure_dt(&conf.gpio_wakeup, GPIO_OUTPUT_ACTIVE);
+	}
+}
+
 bool dw3000_hw_interrupt_is_enabled(void)
 {
 	return dw3000_irs_flag; // TODO

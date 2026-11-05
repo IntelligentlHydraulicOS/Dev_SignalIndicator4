@@ -252,7 +252,7 @@ bool dw1000_take_poll_response(void)
 	return (atomic_set(&poll_response_pending, 0) != 0);
 }
 
-void dw1000_sendpoll(void)
+void dw1000_sendpoll(uint64_t curr_ts)
 {
     if(Dw1000_State.uiTimeoutN < MAXTAGTIMEOUTN)
     {
@@ -276,7 +276,7 @@ void dw1000_sendpoll(void)
         
         tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
         tx_final_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;
-        // printk("***********************************************\n");
+        // printk("dw3000 send poll nodeid(%d)\r\n", Dw1000_State.uiTagNodeID);
         dw1000_sendMsg1(tx_poll_msg, sizeof(tx_poll_msg), DWT_START_TX_IMMEDIATE);
     }
 }

@@ -5,6 +5,22 @@
 	status = "okay";
 };
 
+&gpio1 {
+	p1_12_default_low: p1-12-default-low {
+		gpio-hog;
+		gpios = <12 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "p1-12-default-low";
+	};
+
+	p1_13_default_low: p1-13-default-low {
+		gpio-hog;
+		gpios = <13 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "p1-13-default-low";
+	};
+};
+
 / {
 	/delete-node/ leds;
 	/delete-node/ buttons;

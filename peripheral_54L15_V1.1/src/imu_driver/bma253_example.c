@@ -69,7 +69,7 @@ int bma253_example_init(void)
 
 	/* 第二步：初始化，量程 ±4g，ODR 100Hz */
 	ret = bma253_init(&bma253, pca9635_spec.bus, BMA253_I2C_ADDR_SDO_HIGH,
-			  BMA253_RANGE_2G, BMA253_ODR_100HZ);
+			  BMA253_RANGE_2G, BMA253_ODR_12_5HZ);
 	if (ret < 0) {
 		printk("BMA253 初始化失败：%d\n", ret);
 		return ret;

@@ -11,6 +11,7 @@
 #include <zephyr/pm/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/spi.h>
+#include <zephyr/pm/device.h>
 
 #include "dw3000_spi.h"
 
@@ -24,6 +25,13 @@ LOG_MODULE_REGISTER(dw3000);
 
 #define DW_INST DT_INST(0, decawave_dw3000)
 #define DW_SPI	DT_PARENT(DT_INST(0, decawave_dw3000))
+
+static const struct device *const spi_gpio = DEVICE_DT_GET(DT_NODELABEL(gpio2));
+
+#define DW3000_SPI_SCK_PIN   6
+#define DW3000_SPI_MOSI_PIN  8
+#define DW3000_SPI_MISO_PIN  9
+#define DW3000_SPI_CS_PIN    5
 
 static const struct device* spi = DEVICE_DT_GET(DT_NODELABEL(spi00));
 static struct gpio_dt_spec spi_cs_spec = GPIO_DT_SPEC_GET(DT_NODELABEL(spi00), cs_gpios);
@@ -69,6 +77,71 @@ int dw3000_spi_init(void)
 	gpio_pin_configure_dt(&spi_cfg->cs.gpio, GPIO_OUTPUT_HIGH);
 
 	return 0;
+}
+
+void dw3000_spi_enter_low_power(void)
+{
+    int ret;
+
+    if (!device_is_ready(spi_gpio)) {
+        return;
+    }
+
+#if CONFIG_PM_DEVICE
+    ret = pm_device_action_run(spi, PM_DEVICE_ACTION_SUSPEND);
+    if (ret != 0 && ret != -ENOTSUP) {
+        printk("DW3000 SPI suspend failed: %d\n", ret);
+    }
+#endif
+
+    /*
+     * SPI 外设暂停后，解除 SPI 复用，
+     * 将 MOSI、MISO 配置成 GPIO 输出低电平。
+     */
+    ret = gpio_pin_configure(spi_gpio, DW3000_SPI_MOSI_PIN,
+                 GPIO_OUTPUT_LOW);
+    if (ret != 0) {
+        printk("MOSI low configuration failed: %d\n", ret);
+    }
+
+    ret = gpio_pin_configure(spi_gpio, DW3000_SPI_MISO_PIN,
+                 GPIO_OUTPUT_LOW);
+    if (ret != 0) {
+        printk("MISO low configuration failed: %d\n", ret);
+    }
+
+    ret = gpio_pin_configure(spi_gpio, DW3000_SPI_SCK_PIN,
+                 GPIO_OUTPUT_LOW);
+    if (ret != 0) {
+        printk("SCK low configuration failed: %d\n", ret);
+    }
+
+    ret = gpio_pin_configure(spi_gpio, DW3000_SPI_CS_PIN,
+                 GPIO_OUTPUT_LOW);
+    if (ret != 0) {
+        printk("CS low configuration failed: %d\n", ret);
+    }
+}
+
+void dw3000_spi_exit_low_power(void)
+{
+    int ret;
+
+#if CONFIG_PM_DEVICE
+    ret = pm_device_action_run(spi, PM_DEVICE_ACTION_RESUME);
+    if (ret != 0 && ret != -ENOTSUP) {
+        printk("DW3000 SPI resume failed: %d\n", ret);
+    }
+#endif
+
+    /*
+     * 如果 SPI 驱动没有自动恢复 pinctrl，
+     * 可以重新调用 SPI GPIO 初始化。
+     */
+    ret = dw3000_spi_init();
+    if (ret != 0) {
+        printk("DW3000 SPI reinit failed: %d\n", ret);
+    }
 }
 
 void dw3000_spi_speed_slow(void)

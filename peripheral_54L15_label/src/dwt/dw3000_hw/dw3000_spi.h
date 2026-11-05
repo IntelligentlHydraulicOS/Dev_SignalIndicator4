@@ -13,6 +13,8 @@
 
 int dw3000_spi_init(void);
 void dw3000_spi_fini(void);
+void dw3000_spi_enter_low_power(void);
+void dw3000_spi_exit_low_power(void);
 void dw3000_spi_wakeup(void);
 void dw3000_spi_speed_slow(void);
 void dw3000_spi_speed_fast(void);

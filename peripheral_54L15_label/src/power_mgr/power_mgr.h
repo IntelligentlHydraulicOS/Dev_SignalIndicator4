@@ -42,7 +42,7 @@ typedef void (*power_mgr_idle_callback_t)(void);
 #define POWER_MGR_ACTIVE_WINDOW_MS    30000U
 
 /* 深度休眠超时：连续无运动多久后进入 ship mode（可调） */
-#define POWER_MGR_DEEP_SLEEP_MS       (5*60*1000)
+#define POWER_MGR_DEEP_SLEEP_MS       (30*60*1000)
 
 /**
  * @brief 初始化电源管理（获取 PMIC/regulator 句柄，打印初始状态）
@@ -72,6 +72,21 @@ int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback);
 int power_mgr_wait_for_motion(uint32_t timeout_ms);
 
 /**
+ * @brief Wake the main loop directly from a motion GPIO ISR.
+ *
+ * This must not perform I2C or other blocking operations.
+ */
+void power_mgr_wake_from_isr(void);
+
+/**
+ * @brief Serialize sensor I2C work with the low-power transition.
+ *
+ * Motion work must hold this lock while accessing BMA253.
+ */
+void power_mgr_sensor_io_lock(void);
+void power_mgr_sensor_io_unlock(void);
+
+/**
  * @brief 上电/唤醒后使能 UWB 供电（BUCK2）
  *
  * 在 main() 里、dw3000 初始化之前调用。
@@ -86,6 +101,7 @@ int power_mgr_enable_uwb(void);
  * 变化量，超过 BMA253_MOTION_THRESHOLD_MG 才认为真实运动。
  * 不用 BMA253 的 AOI1_SRC.IA 位 —— 实测该位在这颗芯片上不可靠。
  *
+ * GPIO ISR 已负责唤醒主线程；本函数只更新活动窗口和 UWB 请求状态。
  * 本函数会重启 10s 活动窗口定时器。
  */
 void power_mgr_notify_motion(void);

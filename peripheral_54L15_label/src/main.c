@@ -181,6 +181,7 @@ int main(void)
 	printf("Starting signal convert v4 app...\n");
 
 	uint64_t last_print_time = 0;
+	uint64_t curr_ts = 0;
 	uint32_t main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
 	uint64_t uwb_power_on_time_ms = 0U;
 	bool uwb_active = false;
@@ -216,13 +217,14 @@ int main(void)
 	buzzer_init();
 
 	for (;;) {
-		if (k_uptime_get() - last_print_time > 5000) {
-			last_print_time = k_uptime_get();
+		curr_ts = k_uptime_get();
+		if (curr_ts - last_print_time > 5000) {
+			last_print_time = curr_ts;
 			fuel_gauge_update(charger, vbus_connected);
 			bma253_example_poll();
 			printf("main loop: uptime=%llu ms, motion_count=%u, "
 			       "main_loop_sleep_ms=%u\n",
-			       k_uptime_get(), (unsigned)power_mgr_get_motion_count(), main_loop_sleep_ms);
+			       curr_ts, (unsigned)power_mgr_get_motion_count(), main_loop_sleep_ms);
 		}
 
 		/* 低功耗状态机：只判断 30s 深度休眠（进 ship mode）。
@@ -242,7 +244,7 @@ int main(void)
 		bool uwb_is_active = power_mgr_uwb_is_active();
 		if (uwb_is_active && !uwb_active) {
 			uwb_active = true;
-			uwb_power_on_time_ms = k_uptime_get();
+			uwb_power_on_time_ms = curr_ts;
 			main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
 		}
 		if (!uwb_is_active) {
@@ -252,12 +254,12 @@ int main(void)
 			Indicator_lights_off();
 		} else {
 			Function_of_indicator_lights();
-			dw1000_sendpoll();
+			dw1000_sendpoll(curr_ts);
 			if (dw1000_take_poll_response()) {
-				uwb_power_on_time_ms = k_uptime_get();
+				uwb_power_on_time_ms = curr_ts;
 				main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
 			} else {
-				uint32_t elapsed_since_uwb_on_ms = (uint32_t)(k_uptime_get() - uwb_power_on_time_ms);
+				uint32_t elapsed_since_uwb_on_ms = (uint32_t)(curr_ts - uwb_power_on_time_ms);
 
 				if (elapsed_since_uwb_on_ms >= UWB_NO_RESPONSE_GRACE_MS) {
 					if (main_loop_sleep_ms < MAIN_LOOP_SLEEP_MAX_MS) {

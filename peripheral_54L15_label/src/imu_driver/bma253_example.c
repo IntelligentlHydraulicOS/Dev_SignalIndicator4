@@ -264,6 +264,8 @@ static void bma253_int1_handler(const struct device *port,
 	 *    有 stdio 锁，主线程若正持有会死锁。
 	 *    printk 用内部 spinlock，中断安全且不缓冲。 */
 	motion_count++;
+	/* Wake the main thread before the work item performs any I2C access. */
+	power_mgr_wake_from_isr();
 	k_work_submit(&motion_work);
 
 	printk("[%6d ms] INT1 上升沿 #%u\n",
@@ -301,6 +303,12 @@ static void motion_work_handler(struct k_work *work)
 
 	ARG_UNUSED(work);
 
+	/*
+	 * The main thread holds this lock while BMA253 I2C is suspended.
+	 * This work item therefore waits until the bus has been resumed.
+	 */
+	power_mgr_sensor_io_lock();
+
 	/* 1) 读 AOI1_SRC —— 必须读，它会清除锁存让 INT1 释放，
 	 *    否则下一次运动不会产生新的上升沿。
 	 *    注意：这颗克隆件的 IA(bit7) 不可靠（真实运动时也可能是 0），
@@ -314,6 +322,7 @@ static void motion_work_handler(struct k_work *work)
 		printk("[%6lld ms] 运动候选 #%u：读加速度失败（%d），已忽略\n",
 		       now, (unsigned)n, ret);
 		last_ms = now;
+		power_mgr_sensor_io_unlock();
 		return;
 	}
 
@@ -354,6 +363,7 @@ static void motion_work_handler(struct k_work *work)
 	}
 
 	last_ms = now;
+	power_mgr_sensor_io_unlock();
 }
 
 int bma253_motion_example_setup(void)
