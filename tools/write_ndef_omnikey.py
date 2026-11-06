@@ -7,6 +7,11 @@ Tested protocol flow:
 
 The tag is expected to accept writable NDEF updates, as the nRF54L15
 application does through nfc_t4t_ndef_rwpayload_set().
+
+写入示例：
+python tools\write_ndef_omnikey.py --text "CFG1;pin=12345678;local_id=12;device_number=34;connect_type=2;tx_power=4;max_connections=5"
+读取实例：
+python tools\write_ndef_omnikey.py --read
 """
 
 import argparse
