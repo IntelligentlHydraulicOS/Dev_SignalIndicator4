@@ -114,9 +114,10 @@ static int ndef_text_get(const uint8_t *message, size_t message_length,
 {
 	if (message == NULL || message_length < 7 || text_size == 0 ||
 	    message[0] != 0xD1 || message[1] != 1 || message[3] != 'T') {
-		printk("NFC: ndef_text_get: invalid NDEF record header or input\n");
-		printk("NFC: ndef_text_get: message[%s]\n", &message[9]);
-		
+		printk("NFC: ndef_text_get: invalid NDEF record header or input "
+		       "(message=%p len=%u text_size=%u)\n",
+		       message, (unsigned int)message_length,
+		       (unsigned int)text_size);
 		return -EINVAL;
 	}
 
@@ -144,7 +145,12 @@ static int ndef_text_get(const uint8_t *message, size_t message_length,
 
 	const uint8_t *text_data = &message[5 + language_length];
 	if (memchr(text_data, '\0', text_length) != NULL) {
-		printk("NFC: ndef_text_get: text contains an embedded NUL byte\n");
+		const uint8_t *nul = memchr(text_data, '\0', text_length);
+		printk("NFC: ndef_text_get: embedded NUL at text offset %u "
+		       "(record length %u, payload length %u)\n",
+		       (unsigned int)(nul - text_data),
+		       (unsigned int)message_length,
+		       (unsigned int)payload_length);
 		return -EINVAL;
 	}
 
@@ -287,7 +293,7 @@ static void nfc_callback(void *context, nfc_t4t_event_t event,
 		return;
 	}
 
-	if (data == NULL || data_length > NFC_NDEF_FILE_SIZE) {
+	if (data == NULL || data_length > NFC_NDEF_FILE_SIZE - 2U) {
 		printk("NFC: rejected oversized or empty NDEF update\n");
 		nfc_update_t rejected = {0};
 		int ret = k_msgq_put(&nfc_update_queue, &rejected, K_NO_WAIT);
@@ -298,10 +304,22 @@ static void nfc_callback(void *context, nfc_t4t_event_t event,
 		return;
 	}
 
+	/*
+	 * The T4T callback reports NLEN as data_length, while the supplied
+	 * buffer starts with the two-byte NLEN field.
+	 */
+	size_t update_length = data_length + 2U;
 	nfc_update_t update = {
-		.length = (uint16_t)data_length,
+		.length = (uint16_t)update_length,
 	};
-	memcpy(update.data, data, data_length);
+	memcpy(update.data, data, update_length);
+
+	printk("NFC write:[");
+	for (size_t i = 0; i < update_length; i++)
+	{
+		printk("%02X ", data[i]);
+	}
+	printk("]\r\n");
 
 	int ret = k_msgq_put(&nfc_update_queue, &update, K_NO_WAIT);
 	if (ret != 0) {
@@ -321,7 +339,26 @@ static void nfc_config_worker(void *arg1, void *arg2, void *arg3)
 	for (;;) {
 		k_msgq_get(&nfc_update_queue, &update, K_FOREVER);
 
-		int ret = ndef_text_get(update.data, update.length, text, sizeof(text));
+		const uint8_t *ndef_message = update.data;
+		size_t ndef_length = update.length;
+
+		if (ndef_length >= 2 && ndef_message[2] == 0xD1) {
+			uint16_t nlen = ((uint16_t)ndef_message[0] << 8) |
+					ndef_message[1];
+			if (nlen == 0) {
+				continue;
+			}
+			if ((size_t)nlen + 2U > ndef_length) {
+				printk("NFC: invalid NLEN %u for update length %u\n",
+				       (unsigned int)nlen, (unsigned int)ndef_length);
+				continue;
+			}
+			ndef_message += 2;
+			ndef_length = nlen;
+		}
+
+		int ret = ndef_text_get(ndef_message, ndef_length,
+					text, sizeof(text));
 		if (ret == 0) {
 			ret = ndef_config_parse(text, &(app_config_t){0});
 			if (ret == 0) {
