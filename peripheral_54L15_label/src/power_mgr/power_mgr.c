@@ -15,6 +15,7 @@
 #include "power_mgr.h"
 #include "dw3000_node.h"
 #include "dw3000_hw.h"
+#include "config.h"
 
 /*
  * nRF54L15 核内复位原因寄存器 RESETREAS。
@@ -163,8 +164,8 @@ static power_mgr_idle_callback_t idle_callback;
 static K_SEM_DEFINE(motion_sem, 0, 1);
 static K_MUTEX_DEFINE(sensor_io_mutex);
 
-/* 10s 活动窗口：延时工作队列。
- * 有运动就 reschedule 成 10s 后；连续 10s 无运动则超时处理运行。 */
+/* NFC 配置的活动窗口：延时工作队列。
+ * 有运动就按当前配置重新计时；窗口内无运动则超时处理运行。 */
 static struct k_work_delayable window_work;
 
 int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback)
@@ -206,17 +207,17 @@ int power_mgr_wait_for_motion(uint32_t timeout_ms)
 		printk("power_mgr: nPM1300 I2C suspend failed: %d\n", ret);
 	}
 
-	ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_SUSPEND);
-	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
-		printk("power_mgr: console UART suspend failed: %d\n", ret);
-	}
+	// ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_SUSPEND);
+	// if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+	// 	printk("power_mgr: console UART suspend failed: %d\n", ret);
+	// }
 
 	ret = k_sem_take(&motion_sem, K_MSEC(timeout_ms));
 
-	int resume_ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_RESUME);
-	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
-		printk("power_mgr: console UART resume failed: %d\n", resume_ret);
-	}
+	int resume_ret = 0;//pm_device_action_run(console_uart, PM_DEVICE_ACTION_RESUME);
+	// if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
+	// 	printk("power_mgr: console UART resume failed: %d\n", resume_ret);
+	// }
 
 	resume_ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_RESUME);
 	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
@@ -313,7 +314,7 @@ static volatile bool uwb_on_req;
 static volatile bool uwb_off_req;
 
 /**
- * 10s 活动窗口超时处理
+ * 活动窗口超时处理
  *
  * 用 k_work_delayable 而不是 k_timer：这个回调在**工作队列线程**执行，
  * k_timer 的 expiry 回调在系统时钟中断里跑，做 I2C/GPIO 会触发内核断言
@@ -329,10 +330,16 @@ static void window_work_handler(struct k_work *work)
 }
 
 /** 重启（推迟）活动窗口：有运动时调用 */
-static void window_restart(void)
+static int window_restart(void)
 {
-	(void)k_work_reschedule(&window_work,
-				K_MSEC(POWER_MGR_ACTIVE_WINDOW_MS));
+	uwb_settings_t settings;
+	int ret = uwb_settings_get(&settings);
+	if (ret != 0) {
+		printk("power_mgr: failed to read active-window setting: %d\n", ret);
+		return ret;
+	}
+
+	return k_work_reschedule(&window_work, K_SECONDS(settings.active_window_s));
 }
 
 /**
@@ -425,13 +432,13 @@ static void uwb_power_off(void)
  * ship mode 生效后 BUCK1 断电，MCU 立即停止，所以正常情况下不返回。
  * 若仍在运行，说明 PMIC 没有执行 ship 命令。
  */
-static void enter_deep_sleep(void)
+static void enter_deep_sleep(uint16_t deep_sleep_s)
 {
 	int ret;
 	int64_t deadline;
 
 	printk("power_mgr: %u s 无运动，进入深度休眠（ship mode）\n",
-	       (unsigned)(POWER_MGR_DEEP_SLEEP_MS / 1000U));
+	       (unsigned)deep_sleep_s);
 	printk("power_mgr: 按 SHPHLD 按键可唤醒（冷启动）\n");
 
 	/* 1) UWB 先干净下电 */
@@ -577,7 +584,7 @@ int power_mgr_init(void)
 
 	last_motion_ms = k_uptime_get();
 
-	/* 初始化 10s 活动窗口（延时工作队列）。
+	/* 初始化活动窗口（延时工作队列）。
 	 * 它在工作队列线程执行，可以直接做 I2C，不需要额外的转发层。 */
 	k_work_init_delayable(&window_work, window_work_handler);
 
@@ -639,32 +646,79 @@ void power_mgr_notify_motion(void)
 {
 	motion_count++;
 	last_motion_ms = k_uptime_get();
+	uwb_settings_t settings;
+	uint16_t active_window_s = UWB_DEFAULT_ACTIVE_WINDOW_S;
+	int ret = uwb_settings_get(&settings);
+	if (ret == 0) {
+		active_window_s = settings.active_window_s;
+	} else {
+		printk("power_mgr: failed to read active-window setting: %d\n", ret);
+	}
 
 	/* 【重要】这里**不直接调用 uwb_power_on()**。
 	 * 本函数由 motion_work_handler() 在系统工作队列线程里调用，
 	 * 而该线程栈只有 2048 字节，跑不动 DW3000 的初始化链（会栈溢出
 	 * 导致 BUS FAULT）。所以只置请求标志，由主线程执行。 */
 	if (!uwb_powered) {
-		printk("power_mgr: 运动触发（第 %u 次），打开 %u ms 活动窗口\n",
-		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+		printk("power_mgr: 运动触发（第 %u 次），打开 %u s 活动窗口\n",
+		       (unsigned)motion_count, (unsigned)active_window_s);
 	} else {
-		printk("power_mgr: 运动触发（第 %u 次），窗口刷新为 %u ms\n",
-		       (unsigned)motion_count, (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+		printk("power_mgr: 运动触发（第 %u 次），窗口刷新为 %u s\n",
+		       (unsigned)motion_count, (unsigned)active_window_s);
 	}
 
 	uwb_off_req = false;     /* 新运动取消待处理的关断 */
 	uwb_on_req = true;       /* 请求主线程上电（若已上电则空操作） */
-	/* 把 10s 窗口往后推。
-	 * 每来一次运动就 reschedule 一次，天然实现"10s 内继续触发则刷新窗口"：
+	/* 把活动窗口往后推。
+	 * 每来一次运动就 reschedule 一次：
 	 *   - 窗口内不断有运动 -> 一直往后推，UWB 持续发送
-	 *   - 连续 10s 无运动   -> 延时工作到期，置 uwb_off_req
+	 *   - 窗口内无运动      -> 延时工作到期，置 uwb_off_req
 	 * 计时从"运动发生时刻"开始，不受 DW3000 初始化耗时影响。 */
-	window_restart();
+	ret = window_restart();
+	if (ret < 0) {
+		printk("power_mgr: failed to restart active window: %d\n", ret);
+	}
+}
+
+void power_mgr_settings_changed(void)
+{
+	uwb_settings_t settings;
+	int ret = uwb_settings_get(&settings);
+	if (ret != 0) {
+		printk("power_mgr: failed to read updated timeout settings: %d\n", ret);
+		return;
+	}
+
+	if (last_motion_ms <= 0 || (!uwb_powered && !uwb_on_req)) {
+		return;
+	}
+
+	int64_t elapsed_ms = k_uptime_get() - last_motion_ms;
+	int64_t active_window_ms = (int64_t)settings.active_window_s * MSEC_PER_SEC;
+	if (elapsed_ms >= active_window_ms) {
+		(void)k_work_cancel_delayable(&window_work);
+		uwb_on_req = false;
+		uwb_off_req = true;
+		return;
+	}
+
+	uwb_off_req = false;
+	ret = k_work_reschedule(&window_work,
+				K_MSEC(active_window_ms - elapsed_ms));
+	if (ret < 0) {
+		printk("power_mgr: failed to reschedule active window: %d\n", ret);
+	}
 }
 
 void power_mgr_sleep_check(void)
 {
 	int64_t now = k_uptime_get();
+	uwb_settings_t settings;
+	int ret = uwb_settings_get(&settings);
+	if (ret != 0) {
+		printk("power_mgr: failed to read sleep timeout settings: %d\n", ret);
+		return;
+	}
 
 	/* ---- 先执行 UWB 上下电（主线程，栈 3584，足够 DW3000 初始化）---- */
 	if (uwb_on_req) {
@@ -674,18 +728,19 @@ void power_mgr_sleep_check(void)
 	if (uwb_off_req) {
 		uwb_off_req = false;
 		if (uwb_powered) {
-			printk("power_mgr: %u ms 活动窗口到期，UWB 进入低功耗\n",
-			       (unsigned)POWER_MGR_ACTIVE_WINDOW_MS);
+			printk("power_mgr: %u s 活动窗口到期，UWB 进入低功耗\n",
+			       (unsigned)settings.active_window_s);
 			uwb_power_off();
 		}
 	}
 
-	/* ---- 30s 无运动 -> 进 ship mode（关机，正常情况下不返回）---- */
-	if ((now - last_motion_ms) >= (int64_t)POWER_MGR_DEEP_SLEEP_MS) {
+	/* ---- 达到配置的无运动时长后进入 ship mode ---- */
+	int64_t deep_sleep_ms = (int64_t)settings.deep_sleep_s * MSEC_PER_SEC;
+	if ((now - last_motion_ms) >= deep_sleep_ms) {
 		/* 先取消未到期的窗口延时工作，避免关机过程中它又触发关 UWB */
 		last_motion_ms = now;
 		(void)k_work_cancel_delayable(&window_work);
-		enter_deep_sleep();
+		enter_deep_sleep(settings.deep_sleep_s);
 	}
 }
 

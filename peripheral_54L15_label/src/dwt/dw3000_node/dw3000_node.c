@@ -1,3 +1,5 @@
+#include <errno.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/atomic.h>
@@ -12,6 +14,8 @@
 #include "shared_defines.h"
 #include "shared_functions.h"
 #include "config_options.h"
+#include "config.h"
+#include "dw3000_node.h"
 
 #define ALL_MSG_SN_IDX 2
 #define ALL_MSG_TAG_MAC 3
@@ -21,7 +25,7 @@
 #define FINAL_MSG_FINAL_TX_TS_IDX 28
 #define LOCALNODEID 6
 
-#define MAXTAGNUMBER 10
+#define MAXTAGNUMBER UWB_MAX_TAG_NODE_ID
 
 typedef struct tag_dw1000_state_t
 {
@@ -40,6 +44,9 @@ typedef struct tag_dw1000_state_t
 dw1000_state_t Dw1000_State = {0};
 static uint8_t uiDiffLocalMacAddr(uint8_t *uiLocalMacAddr, uint8_t *uiCurrentMacAddr);
 static atomic_t poll_response_pending;
+static uint8_t tag_start_node_id = UWB_DEFAULT_START_NODE_ID;
+static uint8_t tag_end_node_id = UWB_DEFAULT_END_NODE_ID;
+static bool tag_mac_initialized;
 
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
@@ -59,8 +66,31 @@ static uint8_t tx_final_msg[] = {0x41, 0x90, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 
 
 static dwt_callbacks_s dw3000node_callbacks;
 
+static void tag_mac_init(void)
+{
+    if (tag_mac_initialized) {
+        return;
+    }
+
+    uint32_t low = NRF_FICR->DEVICEADDR[0];
+    uint32_t high = NRF_FICR->DEVICEADDR[1];
+
+    Dw1000_State.uiMacAddr[5] = (low >> 0) & 0xFF;
+    Dw1000_State.uiMacAddr[4] = (low >> 8) & 0xFF;
+    Dw1000_State.uiMacAddr[3] = (low >> 16) & 0xFF;
+    Dw1000_State.uiMacAddr[2] = (low >> 24) & 0xFF;
+    Dw1000_State.uiMacAddr[1] = (high >> 0) & 0xFF;
+    Dw1000_State.uiMacAddr[0] = (high >> 8) & 0xFF;
+    tag_mac_initialized = true;
+}
+
 void get_LocalMacAddr(uint8_t *uiLocalMacAddr)
 {
+    if (uiLocalMacAddr == NULL) {
+        return;
+    }
+
+    tag_mac_init();
     memcpy(uiLocalMacAddr, Dw1000_State.uiMacAddr, 6 * sizeof(uint8_t));
 }
 
@@ -84,15 +114,7 @@ void dw3000_hw_node_init()
     dw3000_hw_init();
     dw3000_hw_init_interrupt();
     
-    uint32_t low  = NRF_FICR->DEVICEADDR[0];
-	uint32_t high = NRF_FICR->DEVICEADDR[1];
-
-    Dw1000_State.uiMacAddr[5] = (low >> 0)  & 0xFF;
-    Dw1000_State.uiMacAddr[4] = (low >> 8)  & 0xFF;
-    Dw1000_State.uiMacAddr[3] = (low >> 16) & 0xFF;
-    Dw1000_State.uiMacAddr[2] = (low >> 24) & 0xFF;
-    Dw1000_State.uiMacAddr[1] = (high >> 0) & 0xFF;
-    Dw1000_State.uiMacAddr[0] = (high >> 8) & 0xFF;
+    tag_mac_init();
     printk("[%s %d] addr(0x%x:0x%x:0x%x:0x%x:0x%x:0x%x)\n", __func__, __LINE__, Dw1000_State.uiMacAddr[0], Dw1000_State.uiMacAddr[1], Dw1000_State.uiMacAddr[2], Dw1000_State.uiMacAddr[3], Dw1000_State.uiMacAddr[4], Dw1000_State.uiMacAddr[5]);
 
     dw3000node_callbacks.cbCiaDone = NULL;
@@ -109,7 +131,12 @@ void dw3000_hw_node_init()
     dw3000node_callbacks.devErr = NULL;
 
     Dw1000_State.uicharacter = 1;
-    Dw1000_State.uiTagNodeID = 1;
+    uwb_settings_t settings;
+    if (uwb_settings_get(&settings) == 0) {
+        (void)dw3000_node_set_tag_node_range(settings.start_node_id,
+                                             settings.end_node_id);
+    }
+    Dw1000_State.uiTagNodeID = tag_start_node_id;
     Dw1000_State.uiStep = 0;
     Dw1000_State.uiTimeoutN = 0;
     Dw1000_State.uiLocalNodeID = LOCALNODEID;
@@ -252,6 +279,33 @@ bool dw1000_take_poll_response(void)
 	return (atomic_set(&poll_response_pending, 0) != 0);
 }
 
+int dw3000_node_set_tag_node_range(uint8_t start_node_id,
+                                   uint8_t end_node_id)
+{
+    if (start_node_id < 1U || end_node_id < start_node_id ||
+        end_node_id > MAXTAGNUMBER) {
+        return -EINVAL;
+    }
+
+    unsigned int key = irq_lock();
+    tag_start_node_id = start_node_id;
+    tag_end_node_id = end_node_id;
+    Dw1000_State.uiTagNodeID = start_node_id;
+    Dw1000_State.uiStep = 0;
+    Dw1000_State.uiTimeoutN = 0;
+    tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = start_node_id;
+    tx_final_msg[ALL_MSG_AUCHOR_NODEID] = start_node_id;
+    irq_unlock(key);
+
+    return 0;
+}
+
+uint8_t dw3000_node_get_current_tag_node_id(void)
+{
+    return Dw1000_State.uiTagNodeID != 0U ?
+           Dw1000_State.uiTagNodeID : tag_start_node_id;
+}
+
 void dw1000_sendpoll(uint64_t curr_ts)
 {
     if(Dw1000_State.uiTimeoutN < MAXTAGTIMEOUTN)
@@ -261,17 +315,19 @@ void dw1000_sendpoll(uint64_t curr_ts)
     
     if(Dw1000_State.uicharacter == 1 && (Dw1000_State.uiTimeoutN >= MAXTAGTIMEOUTN || Dw1000_State.uiStep == 0))
     {
+        bool advance_node = Dw1000_State.uiTimeoutN >= MAXTAGTIMEOUTN;
+
         // dw3000_hw_sync();
         Dw1000_State.uiStep = 0;
         Dw1000_State.uiTimeoutN = 0;
 
-        if(Dw1000_State.uiTagNodeID >= 1 && Dw1000_State.uiTagNodeID < 10)
-        {
-            Dw1000_State.uiTagNodeID = Dw1000_State.uiTagNodeID % 10 + 1;
-        }
-        else
-        {
-            Dw1000_State.uiTagNodeID = 1;
+        if (!advance_node) {
+            Dw1000_State.uiTagNodeID = tag_start_node_id;
+        } else if (Dw1000_State.uiTagNodeID < tag_start_node_id ||
+                   Dw1000_State.uiTagNodeID >= tag_end_node_id) {
+            Dw1000_State.uiTagNodeID = tag_start_node_id;
+        } else {
+            Dw1000_State.uiTagNodeID++;
         }
         
         tx_poll_msg[ALL_MSG_AUCHOR_NODEID] = Dw1000_State.uiTagNodeID;

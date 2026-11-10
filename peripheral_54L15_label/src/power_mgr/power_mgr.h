@@ -3,14 +3,14 @@
  *
  * 逻辑（按需求实现）：
  *
- *   1) 三轴运动检测中断触发 -> 打开 10s「活动窗口」
+ *   1) 三轴运动检测中断触发 -> 打开 NFC 配置的「活动窗口」
  *      - 使能 BUCK2（给 DW3000 供电）
  *      - 开始 dw1000_sendpoll() 轮询发送
  *
- *   2) 10s 窗口内再次触发运动 -> 窗口刷新为 10s（不重启发送）
- *      10s 内无运动          -> 停止发送，关闭 BUCK2（DW3000 断电休眠）
+ *   2) 活动窗口内再次触发运动 -> 刷新活动窗口（不重启发送）
+ *      窗口内无运动           -> 停止发送，关闭 BUCK2（DW3000 断电休眠）
  *
- *   3) 连续 30s 无任何运动 -> 进入深度休眠：
+ *   3) 连续达到配置的无运动时长 -> 进入深度休眠：
  *      - 关闭 BUCK2（UWB 断电）
  *      - 进入 nPM1300 ship mode（所有 rail 断电，MCU 自己也失电）
  *      - **只能靠 SHPHLD 按键唤醒**；唤醒后 nPM1300 恢复供电，
@@ -37,12 +37,6 @@
  * not block, sleep, allocate memory, or perform operations that can wait.
  */
 typedef void (*power_mgr_idle_callback_t)(void);
-
-/* 活动窗口时长：检测到运动后，DW3000 持续发送的时间（可调） */
-#define POWER_MGR_ACTIVE_WINDOW_MS    30000U
-
-/* 深度休眠超时：连续无运动多久后进入 ship mode（可调） */
-#define POWER_MGR_DEEP_SLEEP_MS       (30*60*1000)
 
 /**
  * @brief 初始化电源管理（获取 PMIC/regulator 句柄，打印初始状态）
@@ -102,15 +96,22 @@ int power_mgr_enable_uwb(void);
  * 不用 BMA253 的 AOI1_SRC.IA 位 —— 实测该位在这颗芯片上不可靠。
  *
  * GPIO ISR 已负责唤醒主线程；本函数只更新活动窗口和 UWB 请求状态。
- * 本函数会重启 10s 活动窗口定时器。
+ * 本函数会按当前 NFC 配置重启活动窗口定时器。
  */
 void power_mgr_notify_motion(void);
 
 /**
+ * @brief Apply updated NFC-configured power timeouts immediately.
+ *
+ * Reschedules the active-window deadline relative to the most recent motion.
+ */
+void power_mgr_settings_changed(void);
+
+/**
  * @brief 主循环里周期调用（建议 50~200ms 一次）
  *
- * **只负责 30s 深度休眠判断**（进 ship mode，会关机）。
- * 10s 活动窗口由内部的 k_work_delayable（延时工作队列）实现，
+ * **只负责配置的深度休眠判断**（进 ship mode，会关机）。
+ * 活动窗口由内部的 k_work_delayable（延时工作队列）实现，
  * 不依赖这个函数的调用频率。
  */
 void power_mgr_sleep_check(void);

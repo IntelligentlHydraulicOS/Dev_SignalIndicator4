@@ -10,6 +10,9 @@
 
 #include "config.h"
 #include "nfc_config_tag.h"
+#include "fuel_gauge.h"
+#include "dw3000_node.h"
+#include "power_mgr.h"
 
 #define NFC_NDEF_FILE_SIZE 256U
 #define NFC_UPDATE_QUEUE_DEPTH 2
@@ -27,6 +30,8 @@ static struct k_thread nfc_config_thread;
 static uint8_t ndef_files[2][NFC_NDEF_FILE_SIZE];
 static uint8_t active_ndef_file;
 static char device_id[17];
+static bool nfc_config_tag_ready;
+K_MUTEX_DEFINE(ndef_file_mutex);
 
 static bool nfc_pin_is_configured(void)
 {
@@ -70,24 +75,39 @@ static int ndef_file_encode_text(uint8_t *file, size_t file_size,
 	return 0;
 }
 
-static int ndef_file_set_info(void)
+static int ndef_file_set_info_impl(void)
 {
-	app_config_t config;
-	char text[192];
+	uwb_settings_t settings;
+	fuel_gauge_data_t battery;
+	uint8_t mac[6];
+	char text[224];
 	uint8_t next_file = active_ndef_file ^ 1U;
 
-	int ret = nrfConfigGet(&config);
+	int ret = uwb_settings_get(&settings);
 	if (ret != 0) {
 		return ret;
 	}
 
+	get_LocalMacAddr(mac);
+	fuel_gauge_data_get(&battery);
+
 	ret = snprintf(text, sizeof(text),
-		       "INFO1;model=SignalConvert-R4;device_id=%s;device_number=%u;"
-		       "local_id=%u;connect_type=%u;tx_power=%u;max_connections=%u",
-		       device_id, (unsigned int)config.device_number,
-		       (unsigned int)config.local_id, (unsigned int)config.connect_type,
-		       (unsigned int)config.tx_power,
-		       (unsigned int)config.max_connections);
+		       "INFO1;device_id=%s;node_id=%u;"
+		       "mac=%02X:%02X:%02X:%02X:%02X:%02X;"
+		       "uwb_start_node_id=%u;uwb_end_node_id=%u;"
+		       "min_interval_ms=%u;max_interval_ms=%u;"
+		       "active_window_s=%u;deep_sleep_s=%u;"
+		       "battery_level=%.1f;battery_health=%.1f",
+		       device_id,
+		       (unsigned int)dw3000_node_get_current_tag_node_id(),
+		       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+		       (unsigned int)settings.start_node_id,
+		       (unsigned int)settings.end_node_id,
+		       (unsigned int)settings.min_interval_ms,
+		       (unsigned int)settings.max_interval_ms,
+		       (unsigned int)settings.active_window_s,
+		       (unsigned int)settings.deep_sleep_s,
+		       (double)battery.soc, (double)battery.soh);
 	if (ret < 0 || (size_t)ret >= sizeof(text)) {
 		return -EMSGSIZE;
 	}
@@ -107,6 +127,23 @@ static int ndef_file_set_info(void)
 
 	active_ndef_file = next_file;
 	return 0;
+}
+
+static int ndef_file_set_info(void)
+{
+	k_mutex_lock(&ndef_file_mutex, K_FOREVER);
+	int ret = ndef_file_set_info_impl();
+	k_mutex_unlock(&ndef_file_mutex);
+	return ret;
+}
+
+int nfc_config_tag_refresh_info(void)
+{
+	if (!nfc_config_tag_ready) {
+		return -EAGAIN;
+	}
+
+	return ndef_file_set_info();
 }
 
 static int ndef_text_get(const uint8_t *message, size_t message_length,
@@ -181,15 +218,38 @@ static int parse_u8(const char *value, uint8_t maximum, uint8_t *result)
 	return 0;
 }
 
-static int ndef_config_parse(char *text, app_config_t *config)
+static int parse_u16(const char *value, uint16_t maximum, uint16_t *result)
+{
+	if (value == NULL || *value == '\0') {
+		return -EINVAL;
+	}
+
+	uint32_t parsed = 0;
+	for (const char *p = value; *p != '\0'; p++) {
+		if (*p < '0' || *p > '9') {
+			return -EINVAL;
+		}
+		uint32_t digit = (uint32_t)(*p - '0');
+		if (digit > maximum || parsed > (maximum - digit) / 10U) {
+			return -ERANGE;
+		}
+		parsed = parsed * 10U + digit;
+	}
+
+	*result = (uint16_t)parsed;
+	return 0;
+}
+
+static int ndef_config_parse(char *text)
 {
 	enum {
 		SEEN_PIN = BIT(0),
-		SEEN_DEVICE_NUMBER = BIT(1),
-		SEEN_LOCAL_ID = BIT(2),
-		SEEN_CONNECT_TYPE = BIT(3),
-		SEEN_TX_POWER = BIT(4),
-		SEEN_MAX_CONNECTIONS = BIT(5),
+		SEEN_START_NODE_ID = BIT(1),
+		SEEN_END_NODE_ID = BIT(2),
+		SEEN_MIN_INTERVAL = BIT(3),
+		SEEN_MAX_INTERVAL = BIT(4),
+		SEEN_ACTIVE_WINDOW = BIT(5),
+		SEEN_DEEP_SLEEP = BIT(6),
 	};
 
 	char *saveptr = NULL;
@@ -199,9 +259,10 @@ static int ndef_config_parse(char *text, app_config_t *config)
 		return -EINVAL;
 	}
 
-	int ret = nrfConfigGet(config);
+	uwb_settings_t settings;
+	int ret = uwb_settings_get(&settings);
 	if (ret != 0) {
-		printk("NFC: ndef_config_parse: failed to get current config: %d\n", ret);
+		printk("NFC: ndef_config_parse: failed to get UWB settings: %d\n", ret);
 		return ret;
 	}
 
@@ -215,9 +276,9 @@ static int ndef_config_parse(char *text, app_config_t *config)
 
 		*separator = '\0';
 		const char *value = separator + 1;
-		uint32_t field;
-		uint8_t *destination;
-		uint8_t maximum;
+		uint32_t field = 0;
+		uint8_t node_id;
+		uint16_t interval_ms;
 
 		if (strcmp(token, "pin") == 0) {
 			field = SEEN_PIN;
@@ -225,28 +286,54 @@ static int ndef_config_parse(char *text, app_config_t *config)
 				printk("NFC: ndef_config_parse: PIN is not configured or does not match\n");
 				return -EACCES;
 			}
-			destination = NULL;
-			maximum = 0;
-		} else if (strcmp(token, "device_number") == 0) {
-			field = SEEN_DEVICE_NUMBER;
-			destination = &config->device_number;
-			maximum = UINT8_MAX;
-		} else if (strcmp(token, "local_id") == 0) {
-			field = SEEN_LOCAL_ID;
-			destination = &config->local_id;
-			maximum = UINT8_MAX;
-		} else if (strcmp(token, "connect_type") == 0) {
-			field = SEEN_CONNECT_TYPE;
-			destination = &config->connect_type;
-			maximum = 0x0F;
-		} else if (strcmp(token, "tx_power") == 0) {
-			field = SEEN_TX_POWER;
-			destination = &config->tx_power;
-			maximum = 8;
-		} else if (strcmp(token, "max_connections") == 0) {
-			field = SEEN_MAX_CONNECTIONS;
-			destination = &config->max_connections;
-			maximum = 0x0F;
+		} else if (strcmp(token, "uwb_start_node_id") == 0) {
+			field = SEEN_START_NODE_ID;
+			ret = parse_u8(value, UWB_MAX_TAG_NODE_ID, &node_id);
+			if (ret == 0) {
+				settings.start_node_id = node_id;
+			}
+		} else if (strcmp(token, "uwb_end_node_id") == 0) {
+			field = SEEN_END_NODE_ID;
+			ret = parse_u8(value, UWB_MAX_TAG_NODE_ID, &node_id);
+			if (ret == 0) {
+				settings.end_node_id = node_id;
+			}
+		} else if (strcmp(token, "min_interval_ms") == 0) {
+			field = SEEN_MIN_INTERVAL;
+			ret = parse_u16(value, UWB_MAX_INTERVAL_MS,
+					&interval_ms);
+			if(value < UWB_MIN_INTERVAL_MS) {
+				printk("NFC: ndef_config_parse: min_interval_ms is too small\n");
+				ret = -EINVAL;
+			}
+			if (ret == 0) {
+				settings.min_interval_ms = interval_ms;
+			}
+		} else if (strcmp(token, "max_interval_ms") == 0) {
+			field = SEEN_MAX_INTERVAL;
+			ret = parse_u16(value, UWB_MAX_INTERVAL_MS,
+					&interval_ms);
+			if(value < UWB_MIN_INTERVAL_MS) {
+				printk("NFC: ndef_config_parse: min_interval_ms is too small\n");
+				ret = -EINVAL;
+			}
+			if (ret == 0) {
+				settings.max_interval_ms = interval_ms;
+			}
+		} else if (strcmp(token, "active_window_s") == 0) {
+			field = SEEN_ACTIVE_WINDOW;
+			ret = parse_u16(value, UWB_MAX_ACTIVE_WINDOW_S,
+					&interval_ms);
+			if (ret == 0) {
+				settings.active_window_s = interval_ms;
+			}
+		} else if (strcmp(token, "deep_sleep_s") == 0) {
+			field = SEEN_DEEP_SLEEP;
+			ret = parse_u16(value, UWB_MAX_DEEP_SLEEP_S,
+					&interval_ms);
+			if (ret == 0) {
+				settings.deep_sleep_s = interval_ms;
+			}
 		} else {
 			printk("NFC: ndef_config_parse: unknown field '%s'\n", token);
 			return -EINVAL;
@@ -258,13 +345,10 @@ static int ndef_config_parse(char *text, app_config_t *config)
 		}
 		seen |= field;
 
-		if (field != SEEN_PIN) {
-			ret = parse_u8(value, maximum, destination);
-			if (ret != 0) {
-				printk("NFC: ndef_config_parse: invalid value for '%s': '%s' (%d)\n",
-				       token, value, ret);
-				return ret;
-			}
+		if (field != SEEN_PIN && ret != 0) {
+			printk("NFC: ndef_config_parse: invalid value for '%s': '%s' (%d)\n",
+			       token, value, ret);
+			return ret;
 		}
 	}
 
@@ -276,10 +360,20 @@ static int ndef_config_parse(char *text, app_config_t *config)
 		return 0;
 	}
 
-	ret = nrfConfigSet(config);
+	ret = uwb_settings_set(&settings);
 	if (ret != 0) {
-		printk("NFC: ndef_config_parse: failed to save config: %d\n", ret);
+		printk("NFC: ndef_config_parse: failed to save UWB settings: %d\n", ret);
+		return ret;
 	}
+
+	ret = dw3000_node_set_tag_node_range(settings.start_node_id,
+					     settings.end_node_id);
+	if (ret != 0) {
+		printk("NFC: ndef_config_parse: failed to apply node range: %d\n", ret);
+		return ret;
+	}
+
+	power_mgr_settings_changed();
 	return ret;
 }
 
@@ -360,7 +454,7 @@ static void nfc_config_worker(void *arg1, void *arg2, void *arg3)
 		int ret = ndef_text_get(ndef_message, ndef_length,
 					text, sizeof(text));
 		if (ret == 0) {
-			ret = ndef_config_parse(text, &(app_config_t){0});
+			ret = ndef_config_parse(text);
 			if (ret == 0) {
 				printk("NFC: configuration updated and saved\n");
 			}
@@ -376,6 +470,8 @@ static void nfc_config_worker(void *arg1, void *arg2, void *arg3)
 int nfc_config_tag_init(void)
 {
 	uint8_t id[8];
+	uwb_settings_t settings;
+	int ret;
 	ssize_t id_length = hwinfo_get_device_id(id, sizeof(id));
 	if (id_length <= 0 || (size_t)id_length > sizeof(id)) {
 		printk("NFC: could not read chip unique ID: %d\n", (int)id_length);
@@ -388,7 +484,19 @@ int nfc_config_tag_init(void)
 	}
 	device_id[id_length * 2] = '\0';
 
-	int ret = nfc_t4t_setup(nfc_callback, NULL);
+	ret = uwb_settings_get(&settings);
+	if (ret != 0) {
+		printk("NFC: could not get UWB settings: %d\n", ret);
+		return ret;
+	}
+	ret = dw3000_node_set_tag_node_range(settings.start_node_id,
+					     settings.end_node_id);
+	if (ret != 0) {
+		printk("NFC: could not apply tag node range: %d\n", ret);
+		return ret;
+	}
+
+	ret = nfc_t4t_setup(nfc_callback, NULL);
 	if (ret != 0) {
 		printk("NFC: Type 4 Tag setup failed: %d\n", ret);
 		return ret;
@@ -406,6 +514,7 @@ int nfc_config_tag_init(void)
 		return ret;
 	}
 
+	nfc_config_tag_ready = true;
 	k_thread_create(&nfc_config_thread, nfc_config_stack,
 			K_THREAD_STACK_SIZEOF(nfc_config_stack), nfc_config_worker,
 			NULL, NULL, NULL, K_PRIO_PREEMPT(7), 0, K_NO_WAIT);

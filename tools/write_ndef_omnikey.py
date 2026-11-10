@@ -9,7 +9,7 @@ The tag is expected to accept writable NDEF updates, as the nRF54L15
 application does through nfc_t4t_ndef_rwpayload_set().
 
 写入示例：
-python tools\write_ndef_omnikey.py --text "CFG1;pin=12345678;local_id=12;device_number=34;connect_type=2;tx_power=4;max_connections=5"
+python tools\write_ndef_omnikey.py --text "CFG1;pin=310101;uwb_start_node_id=1;uwb_end_node_id=12;min_interval_ms=100;max_interval_ms=20000;active_window_s=20;deep_sleep_s=3600"
 读取实例：
 python tools\write_ndef_omnikey.py --read
 """

@@ -17,6 +17,8 @@
 
 #include <nrf_fuel_gauge.h>
 
+#include "fuel_gauge.h"
+
 #define SETTINGS_KEY "fuel_gauge_state"
 
 /* nPM13xx CHARGER.BCHGCHARGESTATUS register bitmasks */
@@ -26,6 +28,7 @@
 #define NPM13XX_CHG_STATUS_CV_MASK	 BIT(4)
 
 static int64_t ref_time;
+static fuel_gauge_data_t fuel_gauge_data = {0};
 
 static const struct battery_model battery_model = {
 #include "battery_model.inc"
@@ -253,6 +256,13 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 	       (double)ttf, (double)soh, state_info.cycle_count,
 	       (double)state_info.cycle_count_cumulative_mah);
 
+	fuel_gauge_data.voltage = voltage;
+	fuel_gauge_data.current = current;
+	fuel_gauge_data.temp = temp;
+	fuel_gauge_data.soc = soc;
+	fuel_gauge_data.soh = soh;
+	fuel_gauge_data.chg_status = chg_status;
+
 	if (IS_ENABLED(CONFIG_SETTINGS) && store_state) {
 		store_state = false;
 
@@ -273,6 +283,18 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 	}
 
 	return 0;
+}
+
+void fuel_gauge_data_get(fuel_gauge_data_t *data)
+{
+	if (data) {
+		data->voltage = fuel_gauge_data.voltage;
+		data->current = fuel_gauge_data.current;
+		data->temp = fuel_gauge_data.temp;
+		data->soc = fuel_gauge_data.soc;
+		data->soh = fuel_gauge_data.soh;
+		data->chg_status = fuel_gauge_data.chg_status;
+	}
 }
 
 #if CONFIG_SHELL

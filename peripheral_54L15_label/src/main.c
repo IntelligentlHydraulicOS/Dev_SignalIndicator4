@@ -35,8 +35,6 @@
 #include "buzzer/buzzer.h"
 #include "power_mgr/power_mgr.h"
 
-#define MAIN_LOOP_SLEEP_MIN_MS           100U
-#define MAIN_LOOP_SLEEP_MAX_MS           20000U
 #define MAIN_LOOP_SLEEP_BACKOFF_NUM      12U
 #define MAIN_LOOP_SLEEP_BACKOFF_DEN      10U
 #define UWB_NO_RESPONSE_GRACE_MS         3000U
@@ -182,10 +180,13 @@ int main(void)
 
 	uint64_t last_print_time = 0;
 	uint64_t curr_ts = 0;
-	uint32_t main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+	uwb_settings_t uwb_settings;
+	uint32_t main_loop_sleep_ms;
 	uint64_t uwb_power_on_time_ms = 0U;
 	bool uwb_active = false;
+	bool nfc_initialized = false;
 	int watchdog_channel;
+	int err;
 
 	watchdog_channel = watchdog_init();
 	if (watchdog_channel < 0) {
@@ -194,11 +195,19 @@ int main(void)
 
 	bms_init();
 	nrfConfigInit();
+	err = uwb_settings_get(&uwb_settings);
+	if (err != 0) {
+		printk("Failed to load UWB settings: %d\n", err);
+		return err;
+	}
+	main_loop_sleep_ms = uwb_settings.min_interval_ms;
 	LedLightInit();
 
-	int err = nfc_config_tag_init();
+	err = nfc_config_tag_init();
 	if (err < 0) {
 		printk("NFC tag initialization failed: %d\n", err);
+	} else {
+		nfc_initialized = true;
 	}
 
 	// RS485_deal_init();
@@ -217,10 +226,27 @@ int main(void)
 	buzzer_init();
 
 	for (;;) {
+		err = uwb_settings_get(&uwb_settings);
+		if (err != 0) {
+			printk("Failed to read UWB settings: %d\n", err);
+			return err;
+		}
+		if (main_loop_sleep_ms < uwb_settings.min_interval_ms) {
+			main_loop_sleep_ms = uwb_settings.min_interval_ms;
+		} else if (main_loop_sleep_ms > uwb_settings.max_interval_ms) {
+			main_loop_sleep_ms = uwb_settings.max_interval_ms;
+		}
+
 		curr_ts = k_uptime_get();
-		if (curr_ts - last_print_time > 5000) {
+		if (curr_ts - last_print_time > 5000 || last_print_time == 0) {
 			last_print_time = curr_ts;
 			fuel_gauge_update(charger, vbus_connected);
+			if (nfc_initialized) {
+				err = nfc_config_tag_refresh_info();
+				if (err != 0) {
+					printk("Failed to refresh NFC status: %d\n", err);
+				}
+			}
 			bma253_example_poll();
 			printf("main loop: uptime=%llu ms, motion_count=%u, "
 			       "main_loop_sleep_ms=%u\n",
@@ -245,37 +271,37 @@ int main(void)
 		if (uwb_is_active && !uwb_active) {
 			uwb_active = true;
 			uwb_power_on_time_ms = curr_ts;
-			main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+			main_loop_sleep_ms = uwb_settings.min_interval_ms;
 		}
 		if (!uwb_is_active) {
 			uwb_active = false;
 			uwb_power_on_time_ms = 0U;
-			main_loop_sleep_ms = MAIN_LOOP_SLEEP_MAX_MS;
+			main_loop_sleep_ms = uwb_settings.max_interval_ms;
 			Indicator_lights_off();
 		} else {
 			Function_of_indicator_lights();
 			dw1000_sendpoll(curr_ts);
 			if (dw1000_take_poll_response()) {
 				uwb_power_on_time_ms = curr_ts;
-				main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+				main_loop_sleep_ms = uwb_settings.min_interval_ms;
 			} else {
 				uint32_t elapsed_since_uwb_on_ms = (uint32_t)(curr_ts - uwb_power_on_time_ms);
 
 				if (elapsed_since_uwb_on_ms >= UWB_NO_RESPONSE_GRACE_MS) {
-					if (main_loop_sleep_ms < MAIN_LOOP_SLEEP_MAX_MS) {
+					if (main_loop_sleep_ms < uwb_settings.max_interval_ms) {
 						uint32_t next_sleep_ms =
 							(main_loop_sleep_ms * MAIN_LOOP_SLEEP_BACKOFF_NUM) /
 							MAIN_LOOP_SLEEP_BACKOFF_DEN;
 						if (next_sleep_ms < main_loop_sleep_ms) {
 							next_sleep_ms = main_loop_sleep_ms;
 						}
-						if (next_sleep_ms > MAIN_LOOP_SLEEP_MAX_MS) {
-							next_sleep_ms = MAIN_LOOP_SLEEP_MAX_MS;
+						if (next_sleep_ms > uwb_settings.max_interval_ms) {
+							next_sleep_ms = uwb_settings.max_interval_ms;
 						}
 						main_loop_sleep_ms = next_sleep_ms;
 					}
 				} else {
-					main_loop_sleep_ms = MAIN_LOOP_SLEEP_MIN_MS;
+					main_loop_sleep_ms = uwb_settings.min_interval_ms;
 				}
 			}
 		}
