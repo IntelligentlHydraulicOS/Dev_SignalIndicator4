@@ -179,6 +179,7 @@ int main(void)
 	printf("Starting signal convert v4 app...\n");
 
 	uint64_t last_print_time = 0;
+	uint64_t last_buzzer_time = 0;
 	uint64_t curr_ts = 0;
 	uwb_settings_t uwb_settings;
 	uint32_t main_loop_sleep_ms;
@@ -225,6 +226,8 @@ int main(void)
 
 	buzzer_init();
 
+	buzzer_on(100);
+
 	for (;;) {
 		err = uwb_settings_get(&uwb_settings);
 		if (err != 0) {
@@ -241,6 +244,14 @@ int main(void)
 		if (curr_ts - last_print_time > 5000 || last_print_time == 0) {
 			last_print_time = curr_ts;
 			fuel_gauge_update(charger, vbus_connected);
+			//该功能暂时注释掉，因为会导致在主循环中频繁触发蜂鸣器，影响正常使用
+			fuel_gauge_data_t fuel_gauge_data = {0};
+			fuel_gauge_data_get(&fuel_gauge_data);
+			if(fuel_gauge_data.soc < 10.0f && curr_ts - last_buzzer_time > 60000 && fuel_gauge_data.chg_status == 0) {
+				buzzer_beep(50, 150, 2);
+				printk("Warning: Battery SoC is below 10%%, please charge the battery soon!\n");
+				last_buzzer_time = curr_ts;
+			}
 			if (nfc_initialized) {
 				err = nfc_config_tag_refresh_info();
 				if (err != 0) {

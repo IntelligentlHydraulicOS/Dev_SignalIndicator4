@@ -239,7 +239,7 @@ void bma253_dump_regs(void)
 static const struct gpio_dt_spec bma253_int1 = GPIO_DT_SPEC_GET(BMA253_INT1_NODE, gpios);
 static struct gpio_callback bma253_int1_cb;
 
-/* 中断里只提交 work，I2C 读放在工作队列线程里做 */
+/* ISR 只发候选唤醒并提交 work；I2C 读放在工作队列线程里做 */
 static volatile uint32_t motion_count;      /* 引脚中断次数 */
 static volatile uint8_t motion_src;
 static struct k_work motion_work;
@@ -264,8 +264,8 @@ static void bma253_int1_handler(const struct device *port,
 	 *    有 stdio 锁，主线程若正持有会死锁。
 	 *    printk 用内部 spinlock，中断安全且不缓冲。 */
 	motion_count++;
-	/* Wake the main thread before the work item performs any I2C access. */
-	power_mgr_wake_from_isr();
+	/* Wake temporarily so the main thread can resume I2C for sample filtering. */
+	power_mgr_motion_candidate_from_isr();
 	k_work_submit(&motion_work);
 
 	printk("[%6d ms] INT1 上升沿 #%u\n",
@@ -323,6 +323,7 @@ static void motion_work_handler(struct k_work *work)
 		       now, (unsigned)n, ret);
 		last_ms = now;
 		power_mgr_sensor_io_unlock();
+		power_mgr_motion_check_complete();
 		return;
 	}
 
@@ -350,6 +351,7 @@ static void motion_work_handler(struct k_work *work)
 			       now, (last_ms != 0) ? (now - last_ms) : 0LL,
 			       (unsigned)n, delta, need, src);
 
+			power_mgr_wake_from_isr();
 			power_mgr_notify_motion();
 		} else {
 			/* 引脚动了但加速度没变 —— 电气干扰，忽略 */
@@ -364,6 +366,7 @@ static void motion_work_handler(struct k_work *work)
 
 	last_ms = now;
 	power_mgr_sensor_io_unlock();
+	power_mgr_motion_check_complete();
 }
 
 int bma253_motion_example_setup(void)

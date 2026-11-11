@@ -13,6 +13,7 @@
 #include "fuel_gauge.h"
 #include "dw3000_node.h"
 #include "power_mgr.h"
+#include "buzzer/buzzer.h"
 
 #define NFC_NDEF_FILE_SIZE 256U
 #define NFC_UPDATE_QUEUE_DEPTH 2
@@ -456,6 +457,7 @@ static void nfc_config_worker(void *arg1, void *arg2, void *arg3)
 		if (ret == 0) {
 			ret = ndef_config_parse(text);
 			if (ret == 0) {
+				buzzer_on(100);
 				printk("NFC: configuration updated and saved\n");
 			}
 		}

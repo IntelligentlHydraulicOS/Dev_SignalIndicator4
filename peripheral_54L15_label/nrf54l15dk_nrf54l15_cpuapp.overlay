@@ -282,11 +282,11 @@ i2c_bma253: &i2c21 {
 
 		npm1300_ek_charger: charger {
 			compatible = "nordic,npm1300-charger";
-			vbus-limit-microamp = <1500000>;
+			vbus-limit-microamp = <800000>;
 
 			thermistor-ohms = <10000>;
 			thermistor-beta = <3380>;
-			trickle-microvolt = <2500000>;
+			thermistor-cold-millidegrees = <1000>;
 
 			/*
 			 * 【关键】必须显式写 charging-enable。
@@ -303,19 +303,19 @@ i2c_bma253: &i2c21 {
 			 * 没有这一条时，电池电压很低（本机读数 ~2.95V）会被拒绝充电。
 			 */
 			vbatlow-charge-enable;
-
+			trickle-microvolt = <2900000>;
 			/*
 			 * 不要写 disable-recharge：它禁止充满后的自动再充电，
 			 * 会让电池掉电后无法回充。
 			 */
 
 			dietemp-resume-millidegrees = <100000>;
-			dietemp-stop-millidegrees = <110000>;
+			dietemp-stop-millidegrees = <109000>;
 
 			/* 单节 Li-ion 满充 4.2V；官方参考用 4.15V。
 			 * 原来的 3.5V 太低，电池几乎充不进电。 */
-			term-microvolt = <4150000>;
-			term-warm-microvolt = <4000000>;
+			term-microvolt = <4200000>;
+			term-warm-microvolt = <3600000>;
 
 			current-microamp = <800000>;
 			dischg-limit-microamp = <1000000>;

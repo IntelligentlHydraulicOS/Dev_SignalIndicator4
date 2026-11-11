@@ -57,8 +57,9 @@ int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback);
 /**
  * @brief Wait for a filtered three-axis motion event or timeout.
  *
- * A motion event releases the wait immediately. The timeout keeps the main
- * loop periodic when no motion occurs.
+ * GPIO candidates only wake the caller long enough to resume the sensor bus
+ * and filter the sample. Only a candidate passing the motion threshold
+ * releases the wait. The timeout keeps the main loop periodic otherwise.
  *
  * @param timeout_ms Maximum wait time in milliseconds.
  * @return 0 if motion woke the caller, -EAGAIN if the timeout expired.
@@ -66,11 +67,22 @@ int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback);
 int power_mgr_wait_for_motion(uint32_t timeout_ms);
 
 /**
- * @brief Wake the main loop directly from a motion GPIO ISR.
+ * @brief Signal a threshold-verified motion event to the waiting main loop.
  *
- * This must not perform I2C or other blocking operations.
+ * This must not perform I2C or other blocking operations. It is called by the
+ * motion worker after the sample passes the configured threshold.
  */
 void power_mgr_wake_from_isr(void);
+
+/**
+ * @brief Wake temporarily to service a GPIO motion candidate.
+ *
+ * This does not count as a verified motion event.
+ */
+void power_mgr_motion_candidate_from_isr(void);
+
+/** Signal that the motion worker has finished filtering the current candidate. */
+void power_mgr_motion_check_complete(void);
 
 /**
  * @brief Serialize sensor I2C work with the low-power transition.
@@ -95,7 +107,7 @@ int power_mgr_enable_uwb(void);
  * 变化量，超过 BMA253_MOTION_THRESHOLD_MG 才认为真实运动。
  * 不用 BMA253 的 AOI1_SRC.IA 位 —— 实测该位在这颗芯片上不可靠。
  *
- * GPIO ISR 已负责唤醒主线程；本函数只更新活动窗口和 UWB 请求状态。
+ * 运动工作队列已确认阈值并负责唤醒主线程；本函数只更新活动窗口和 UWB 请求状态。
  * 本函数会按当前 NFC 配置重启活动窗口定时器。
  */
 void power_mgr_notify_motion(void);

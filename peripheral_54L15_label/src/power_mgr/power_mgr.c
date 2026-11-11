@@ -162,6 +162,8 @@ static int64_t last_motion_ms = 0;
 static uint32_t motion_count = 0;
 static power_mgr_idle_callback_t idle_callback;
 static K_SEM_DEFINE(motion_sem, 0, 1);
+static K_SEM_DEFINE(motion_candidate_sem, 0, 1);
+static K_SEM_DEFINE(motion_check_done_sem, 0, 1);
 static K_MUTEX_DEFINE(sensor_io_mutex);
 
 /* NFC 配置的活动窗口：延时工作队列。
@@ -185,58 +187,96 @@ int power_mgr_register_idle_callback(power_mgr_idle_callback_t callback)
 int power_mgr_wait_for_motion(uint32_t timeout_ms)
 {
 	int ret;
+	int64_t deadline_ms = k_uptime_get() + timeout_ms;
 
-	/*
-	 * Prevent the motion work item from starting an I2C transaction while
-	 * the BMA253 bus is being suspended.
-	 */
-	k_mutex_lock(&sensor_io_mutex, K_FOREVER);
+	while (true) {
+		int64_t remaining_ms = deadline_ms - k_uptime_get();
 
-	/*
-	 * Suspend the buses and console only while the application is blocked.
-	 * The PMIC bus must be resumed before this function returns because
-	 * power_mgr_sleep_check() uses it on the next loop iteration.
-	 */
-	ret = pm_device_action_run(bma253_i2c, PM_DEVICE_ACTION_SUSPEND);
-	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
-		printk("power_mgr: BMA253 I2C suspend failed: %d\n", ret);
+		if (remaining_ms < 0) {
+			remaining_ms = 0;
+		}
+
+		/*
+		 * Keep the lock while waiting for an interrupt candidate. The
+		 * worker must not access BMA253 until the I2C bus is resumed below.
+		 */
+		k_mutex_lock(&sensor_io_mutex, K_FOREVER);
+
+		ret = pm_device_action_run(bma253_i2c, PM_DEVICE_ACTION_SUSPEND);
+		if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+			printk("power_mgr: BMA253 I2C suspend failed: %d\n", ret);
+		}
+
+		ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_SUSPEND);
+		if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+			printk("power_mgr: nPM1300 I2C suspend failed: %d\n", ret);
+		}
+
+		ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_SUSPEND);
+		if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
+			printk("power_mgr: console UART suspend failed: %d\n", ret);
+		}
+
+		ret = k_sem_take(&motion_candidate_sem, K_MSEC(remaining_ms));
+
+		int resume_ret = pm_device_action_run(console_uart,
+						      PM_DEVICE_ACTION_RESUME);
+		if (resume_ret != 0 && resume_ret != -EALREADY &&
+		    resume_ret != -ENOTSUP) {
+			printk("power_mgr: console UART resume failed: %d\n",
+			       resume_ret);
+		}
+
+		resume_ret = pm_device_action_run(npm1300_i2c,
+						  PM_DEVICE_ACTION_RESUME);
+		if (resume_ret != 0 && resume_ret != -EALREADY &&
+		    resume_ret != -ENOTSUP) {
+			printk("power_mgr: nPM1300 I2C resume failed: %d\n",
+			       resume_ret);
+		}
+
+		resume_ret = pm_device_action_run(bma253_i2c,
+						  PM_DEVICE_ACTION_RESUME);
+		if (resume_ret != 0 && resume_ret != -EALREADY &&
+		    resume_ret != -ENOTSUP) {
+			printk("power_mgr: BMA253 I2C resume failed: %d\n",
+			       resume_ret);
+		}
+
+		k_mutex_unlock(&sensor_io_mutex);
+
+		if (ret != 0) {
+			return ret;
+		}
+
+		ret = k_sem_take(&motion_check_done_sem, K_FOREVER);
+		if (ret != 0) {
+			return ret;
+		}
+
+		if (k_sem_take(&motion_sem, K_NO_WAIT) == 0) {
+			return 0;
+		}
+
+		if (k_uptime_get() >= deadline_ms) {
+			return -EAGAIN;
+		}
 	}
-
-	ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_SUSPEND);
-	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
-		printk("power_mgr: nPM1300 I2C suspend failed: %d\n", ret);
-	}
-
-	// ret = pm_device_action_run(console_uart, PM_DEVICE_ACTION_SUSPEND);
-	// if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP) {
-	// 	printk("power_mgr: console UART suspend failed: %d\n", ret);
-	// }
-
-	ret = k_sem_take(&motion_sem, K_MSEC(timeout_ms));
-
-	int resume_ret = 0;//pm_device_action_run(console_uart, PM_DEVICE_ACTION_RESUME);
-	// if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
-	// 	printk("power_mgr: console UART resume failed: %d\n", resume_ret);
-	// }
-
-	resume_ret = pm_device_action_run(npm1300_i2c, PM_DEVICE_ACTION_RESUME);
-	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
-		printk("power_mgr: nPM1300 I2C resume failed: %d\n", resume_ret);
-	}
-
-	resume_ret = pm_device_action_run(bma253_i2c, PM_DEVICE_ACTION_RESUME);
-	if (resume_ret != 0 && resume_ret != -EALREADY && resume_ret != -ENOTSUP) {
-		printk("power_mgr: BMA253 I2C resume failed: %d\n", resume_ret);
-	}
-
-	k_mutex_unlock(&sensor_io_mutex);
-
-	return ret;
 }
 
 void power_mgr_wake_from_isr(void)
 {
 	k_sem_give(&motion_sem);
+}
+
+void power_mgr_motion_candidate_from_isr(void)
+{
+	k_sem_give(&motion_candidate_sem);
+}
+
+void power_mgr_motion_check_complete(void)
+{
+	k_sem_give(&motion_check_done_sem);
 }
 
 void power_mgr_sensor_io_lock(void)

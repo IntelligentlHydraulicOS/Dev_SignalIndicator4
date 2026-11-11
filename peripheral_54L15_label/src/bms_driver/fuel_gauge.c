@@ -16,7 +16,7 @@
 #include <zephyr/sys/util.h>
 
 #include <nrf_fuel_gauge.h>
-
+#include "buzzer/buzzer.h"
 #include "fuel_gauge.h"
 
 #define SETTINGS_KEY "fuel_gauge_state"
@@ -251,10 +251,10 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 	}
 
 	printk("V: %.3f, I: %.3f, T: %.2f, SoC: %.2f, TTE: %.0f, TTF: %.0f, SoH: %.2f, Cycles: %d, "
-	       "Chg: %.2f\n",
+	       "Chg: %.2f charging_status: %d\n",
 	       (double)voltage, (double)current, (double)temp, (double)soc, (double)tte,
 	       (double)ttf, (double)soh, state_info.cycle_count,
-	       (double)state_info.cycle_count_cumulative_mah);
+	       (double)state_info.cycle_count_cumulative_mah, chg_status);
 
 	fuel_gauge_data.voltage = voltage;
 	fuel_gauge_data.current = current;
