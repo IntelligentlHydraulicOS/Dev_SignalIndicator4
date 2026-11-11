@@ -326,7 +326,7 @@ void pca9635_SetAllLEDs(struct LED_RGB_T *RgbLed, uint8_t uiLight)
 	}
 
 	if (lit) {
-		pca9635_set_all_rgb(RgbLed, 255);
+		pca9635_set_all_rgb(RgbLed, 50);
 	} else {
 		pca9635_set_all_rgb(RgbLed, 0);
 	}

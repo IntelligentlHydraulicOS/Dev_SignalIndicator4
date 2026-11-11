@@ -11,6 +11,7 @@
 #include "config.h"
 #include "dw3000_node.h"
 #include "nfc_config_tag.h"
+#include "peripheral_manage.h"
 
 #define CONFIG_RECORD_MAGIC 0x53434647U
 #define CONFIG_RECORD_VERSION 1U
@@ -160,9 +161,13 @@ uint8_t uiGetLocalID(void)
 
 void uiSetLocalID(uint8_t uiLocalID)
 {
-    nrf54l15_config.local_id = uiLocalID;
-    flash_uwbNodeID();
-    ndef_file_set_info();
+    if(nrf54l15_config.local_id != uiLocalID)
+    {
+        nrf54l15_config.local_id = uiLocalID;
+        flash_uwbNodeID();
+        ndef_file_set_info();
+        peripheral_advertising_restart();
+    }
 }
 
 uint8_t uiGetBLE_Txpower(void)

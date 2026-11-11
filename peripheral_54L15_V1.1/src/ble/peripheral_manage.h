@@ -11,7 +11,7 @@ extern void peripheral_advertising_start();
 extern void peripheral_connected(struct bt_conn *conn);
 extern void peripheral_disconnected(struct bt_conn *conn);
 extern void peripheral_send_message(uint8_t *Data, uint16_t uiLen);
-
+extern void peripheral_advertising_restart();
 
 #ifdef __cplusplus
 }

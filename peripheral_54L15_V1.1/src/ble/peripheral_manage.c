@@ -24,9 +24,9 @@ struct bt_conn *peripheralconn_list[20] = {NULL};
 #define DEVICE_NAME_LEN	(sizeof(DEVICE_NAME) - 1)
 
 uint8_t my_custom_data[] = {
-    0x11, 0x22, 0x33, 0x44, 0x55,     // 你想发的任意数据
-    0xAA, 0xBB, 0xCC, 0xDD, 0x11,
-    0x22            // 可放 ID/版本/传感器/距离等
+    0x00, 0x00, 0x00, 0x00, 0x00,     // 你想发的任意数据
+    0x00, 0x00, 0x00, 0x00, 0x78,
+    0x78, 0x78         // 可放 ID/版本/传感器/距离等
 };
 
 #define MANUFACTURER_ID 0xFFFF        // 厂商ID（测试用）
@@ -96,7 +96,7 @@ static void adv_start(void)
         return;
     }
 
-    my_custom_data[0] = 0x05;
+    my_custom_data[0] = 0x06;
     my_custom_data[2] = uiGetLocalID();
 
     err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad), NULL, 0);
@@ -160,6 +160,12 @@ void peripheral_advertising_stop()
 {
     // bt_le_adv_stop();
     bt_le_ext_adv_stop(adv_set);
+}
+
+void peripheral_advertising_restart()
+{
+    peripheral_advertising_stop();
+    peripheral_advertising_start();
 }
 
 void peripheral_connected(struct bt_conn *conn)
