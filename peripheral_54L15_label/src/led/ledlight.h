@@ -5,5 +5,6 @@ extern void Function_of_indicator_lights();
 extern void Indicator_lights_off(void);
 extern uint8_t Led_ParseData(uint8_t *uiBuff, uint16_t Size, uint8_t uiFromPort);
 extern void LedLightInit();
+extern void LedLightOn(uint32_t ms);
 
 #endif

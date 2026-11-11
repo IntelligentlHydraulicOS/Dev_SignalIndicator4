@@ -242,6 +242,7 @@ int main(void)
 
 		curr_ts = k_uptime_get();
 		if (curr_ts - last_print_time > 5000 || last_print_time == 0) {
+			LedLightOn(50);
 			last_print_time = curr_ts;
 			fuel_gauge_update(charger, vbus_connected);
 			//该功能暂时注释掉，因为会导致在主循环中频繁触发蜂鸣器，影响正常使用
@@ -288,9 +289,8 @@ int main(void)
 			uwb_active = false;
 			uwb_power_on_time_ms = 0U;
 			main_loop_sleep_ms = uwb_settings.max_interval_ms;
-			Indicator_lights_off();
+			// Indicator_lights_off();
 		} else {
-			Function_of_indicator_lights();
 			dw1000_sendpoll(curr_ts);
 			if (dw1000_take_poll_response()) {
 				uwb_power_on_time_ms = curr_ts;

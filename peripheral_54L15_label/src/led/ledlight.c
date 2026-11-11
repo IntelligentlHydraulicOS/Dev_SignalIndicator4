@@ -9,6 +9,7 @@
 #include "ledlight.h"
 
 static const struct gpio_dt_spec heart1_led = GPIO_DT_SPEC_GET(DT_NODELABEL(heart_led), gpios);
+static struct k_work_delayable led_work_delayable;
 
 #if 0
 {0x00, 0xFF, 0x00}, /* green */
@@ -115,15 +116,50 @@ static void heartledlight()
 	uiheartLight = (uiheartLight + 1) % 2;
 }
 
+static void led_work_off_handler(struct k_work* item)
+{
+	int ret;
+
+	ARG_UNUSED(item);
+	printk("[%s %d] led_work_off_handler\n", __func__, __LINE__);
+	ret = gpio_pin_set_dt(&heart1_led, 0);
+	if (ret != 0) {
+		printk("Heart LED: failed to turn off: %d\n", ret);
+	}
+}
+
 void LedLightInit()
 {
-	int err = gpio_pin_configure_dt(&heart1_led, GPIO_OUTPUT);
-    if (err) {
-        printk("[%s %d]Cannot configure LED gpio", __func__, __LINE__);
-    }
+	int err = gpio_pin_configure_dt(&heart1_led, GPIO_OUTPUT_INACTIVE);
+	if (err != 0) {
+		printk("[%s %d]Cannot configure LED gpio: %d\n",
+		       __func__, __LINE__, err);
+		return;
+	}
 
-	ws2811_init();
+	k_work_init_delayable(&led_work_delayable, led_work_off_handler);
+	// ws2811_init();
 }
+
+void LedLightOn(uint32_t ms)
+{
+	int ret;
+
+	printk("[%s %d] LedLightOn: ms=%d\n", __func__, __LINE__, ms);
+	/* heart_led is active-low: logical 1 drives the physical pin low. */
+	ret = gpio_pin_set_dt(&heart1_led, 1);
+	if (ret != 0) {
+		printk("Heart LED: failed to turn on: %d\n", ret);
+		return;
+	}
+
+	ret = k_work_reschedule(&led_work_delayable, K_MSEC(ms));
+	if (ret < 0) {
+		printk("Heart LED: failed to schedule turn-off: %d\n", ret);
+		(void)gpio_pin_set_dt(&heart1_led, 0);
+	}
+}
+
 static int iLedTimeout = 0;
 void Function_of_indicator_lights(void)
 {
@@ -150,7 +186,11 @@ void Function_of_indicator_lights(void)
 
 void Indicator_lights_off(void)
 {
-	gpio_pin_set_dt(&heart1_led, 0);
+	int ret = gpio_pin_set_dt(&heart1_led, 0);
+
+	if (ret != 0) {
+		printk("Heart LED: failed to turn off: %d\n", ret);
+	}
 }
 
 /*
