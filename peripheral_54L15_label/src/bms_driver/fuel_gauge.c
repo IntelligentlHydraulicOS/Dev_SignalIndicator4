@@ -192,6 +192,8 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 	float ttf;
 	float delta;
 	int32_t chg_status;
+	int32_t chg_error;
+	struct sensor_value error_value;
 	int ret;
 
 	ret = read_sensors(charger, &voltage, &current, &temp, &chg_status);
@@ -199,6 +201,14 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 		printk("Error: Could not read from charger device\n");
 		return ret;
 	}
+
+	ret = sensor_channel_get(charger, SENSOR_CHAN_NPM13XX_CHARGER_ERROR,
+				 &error_value);
+	if (ret < 0) {
+		printk("Error: Could not read charger error status: %d\n", ret);
+		return ret;
+	}
+	chg_error = error_value.val1;
 
 	ret = nrf_fuel_gauge_ext_state_update(
 		vbus_connected ? NRF_FUEL_GAUGE_EXT_STATE_INFO_VBUS_CONNECTED
@@ -251,10 +261,12 @@ int fuel_gauge_update(const struct device *charger, bool vbus_connected)
 	}
 
 	printk("V: %.3f, I: %.3f, T: %.2f, SoC: %.2f, TTE: %.0f, TTF: %.0f, SoH: %.2f, Cycles: %d, "
-	       "Chg: %.2f charging_status: %d\n",
+	       "Chg: %.2f charging_status: %d charging_error: 0x%02X (%d)%s\n",
 	       (double)voltage, (double)current, (double)temp, (double)soc, (double)tte,
 	       (double)ttf, (double)soh, state_info.cycle_count,
-	       (double)state_info.cycle_count_cumulative_mah, chg_status);
+	       (double)state_info.cycle_count_cumulative_mah, chg_status,
+	       (unsigned int)chg_error, chg_error,
+	       chg_error != 0 ? " [charger error]" : "");
 
 	fuel_gauge_data.voltage = voltage;
 	fuel_gauge_data.current = current;
