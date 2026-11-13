@@ -22,13 +22,13 @@ char dist_str[16] = { 0 };
  * temperature. These values can be calibrated prior to taking reference measurements. */
 dwt_txconfig_t txconfig_options = {
     0x34,       /* PG delay. */
-    0xfdfdfdfd, /* TX power. */
+    0xffffffff, /* TX power. */
     0x0         /*PG count*/
 };
 
 dwt_txconfig_t txconfig_options_ch9 = {
     0x34,       /* PG delay. */
-    0xfefefefe, /* TX power. */
+    0xffffffff, /* TX power. */
     0x0         /*PG count*/
 };
 
